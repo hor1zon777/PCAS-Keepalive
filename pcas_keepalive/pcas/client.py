@@ -27,6 +27,7 @@ from .const import (
     ECLOUD_ACCESS_KEY,
     ECLOUD_SECRET_KEY,
     EP,
+    OP_OPERATE_MAP,
     OP_TYPES,
     RSA_ENVELOPE_KEY,
     OpType,
@@ -399,23 +400,76 @@ class PCASClient:
 
     # ---------------- 资源操作 ----------------
 
-    async def operate_machine(self, machine_id: str, op: str) -> Any:
+    async def operate_machine(
+        self,
+        machine_id: str,
+        op: str,
+        *,
+        machine_name: str = "",
+        resource_pool_uid: str = "",
+    ) -> Any:
+        """电源操作。
+
+        ⚠️ 服务端真实契约（来自 HAR 解密 + Node 参考实现）：
+          - 字段名是 `operate`（不是 `operType`）。
+          - 字段值要走映射：start → available, stop → shutdown, restart → restart。
+          - 必填：`machineId` / `machineName` / `operate` / `accessToken`。
+          - `resourcePoolUid` 在成功请求里**不传**，服务端响应中是 null。
+            （只在 Node 实现的多桌面 pool mapping 场景需要，本工具单桌面默认不传）
+
+        Args:
+            machine_id: 机器 id（UUID 风格 = mapped machineId = instanceId）
+            op: OP_TYPES 中的前端术语（start / shutdown / restart ...）
+            machine_name: 机器显示名
+            resource_pool_uid: 可选；非空才下发
+        """
         if op not in OP_TYPES:
             raise ValueError(f"unknown op {op}; allowed: {list(OP_TYPES)}")
-        return await self._post_ok(EP.RESOURCE_OPERATE, {
+        body: dict[str, Any] = {
             "accessToken": self.access_token,
             "machineId": machine_id,
-            "operType": op,
-        })
+            "machineName": machine_name,
+            "operate": OP_OPERATE_MAP.get(op, op),
+        }
+        if resource_pool_uid:
+            body["resourcePoolUid"] = resource_pool_uid
+        return await self._post_ok(EP.RESOURCE_OPERATE, body)
 
-    async def start_machine(self, machine_id: str) -> Any:
-        return await self.operate_machine(machine_id, OpType.START)
+    async def start_machine(
+        self,
+        machine_id: str,
+        *,
+        machine_name: str = "",
+        resource_pool_uid: str = "",
+    ) -> Any:
+        return await self.operate_machine(
+            machine_id, OpType.START,
+            machine_name=machine_name, resource_pool_uid=resource_pool_uid,
+        )
 
-    async def shutdown_machine(self, machine_id: str) -> Any:
-        return await self.operate_machine(machine_id, OpType.SHUTDOWN)
+    async def shutdown_machine(
+        self,
+        machine_id: str,
+        *,
+        machine_name: str = "",
+        resource_pool_uid: str = "",
+    ) -> Any:
+        return await self.operate_machine(
+            machine_id, OpType.SHUTDOWN,
+            machine_name=machine_name, resource_pool_uid=resource_pool_uid,
+        )
 
-    async def restart_machine(self, machine_id: str) -> Any:
-        return await self.operate_machine(machine_id, OpType.RESTART)
+    async def restart_machine(
+        self,
+        machine_id: str,
+        *,
+        machine_name: str = "",
+        resource_pool_uid: str = "",
+    ) -> Any:
+        return await self.operate_machine(
+            machine_id, OpType.RESTART,
+            machine_name=machine_name, resource_pool_uid=resource_pool_uid,
+        )
 
     async def change_machine_name(self, machine_id: str, name: str) -> Any:
         return await self._post_ok(EP.USER_CHANGE_MACHINE_NAME, {

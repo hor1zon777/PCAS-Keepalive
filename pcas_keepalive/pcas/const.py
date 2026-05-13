@@ -72,6 +72,12 @@ class EP:
 # ---------- 操作枚举 ----------
 
 class OpType:
+    """前端/调用方使用的"操作名"。
+
+    ⚠️ 真正发给服务端 /resource/operate 的 `operate` 字段值需要走 OP_OPERATE_MAP
+    映射（参考 Node 实现 server.js:1419 operateMap）。
+    例如 START 在服务端是 'available'，不是 'start'。
+    """
     START = "start"
     SHUTDOWN = "shutdown"
     RESTART = "restart"
@@ -86,6 +92,14 @@ OP_TYPES: tuple[str, ...] = (
     OpType.START, OpType.SHUTDOWN, OpType.RESTART, OpType.RESET,
     OpType.PAUSE, OpType.RESUME, OpType.STOP, OpType.RELOAD,
 )
+
+# 前端术语 → 服务端真值。未列出的项原样下发。
+# 来自 Node 参考 server.js:1419: { start: 'available', stop: 'shutdown', restart: 'restart' }
+OP_OPERATE_MAP: dict[str, str] = {
+    "start": "available",
+    "stop": "shutdown",
+    # shutdown / restart 直传
+}
 
 
 class MachineStatus:

@@ -650,6 +650,41 @@ async def api_refresh(request: Request, admin_id: int = Depends(require_admin)):
 
 # ---------- 开关机 ----------
 
+def _resolve_op_target(account_id: int, machine_id: str) -> tuple[str, str, str]:
+    """从 db 里查机器，解析出真正下发给 /resource/operate 的 (machineId, machineName, resourcePoolUid)。
+
+    ⚠️ 服务端期望的 machineId 是 **display 的 UUID 风格 machineId**，不是
+    `connectMachineId` / `instance_id`（后者一般是 `CCA-xxxx`，Node 实现
+    `server.js:1480` 明确把 CCA- 开头标记为 "suspicious"）。
+    对照 Node `resolveMachineConnectMachineId`：当 `connect_machine_id ==
+    instance_id` 时判 fallback，无 poolMappings 时最终回到 `displayMachineId`。
+
+    `resourcePoolUid` 仅在 db 已记录时透传；服务端成功请求里通常不传。
+    """
+    m = db.get_machine(account_id, machine_id)
+    if not m:
+        raise HTTPException(404, f"未找到机器 {machine_id}")
+    raw = {}
+    if m.get("raw_json"):
+        try:
+            raw = json.loads(m["raw_json"]) or {}
+        except Exception:
+            raw = {}
+    # 优先取 raw_json 里 mapped 后的 display machineId（与前端展示一致），
+    # 兜底用 db.machine_id（== 前端传过来的）。
+    display_id = (
+        raw.get("machineId")
+        or m.get("machine_id")
+        or machine_id
+    )
+    # 如果上一行结果意外是 CCA- 前缀（不该出现），再退到前端原值
+    if str(display_id).startswith("CCA-"):
+        display_id = m.get("machine_id") or machine_id
+    machine_name = raw.get("machineName") or m.get("machine_name") or ""
+    resource_pool_uid = raw.get("resourcePoolUid") or ""
+    return str(display_id), str(machine_name), str(resource_pool_uid)
+
+
 @app.post("/api/op")
 async def api_op(
     request: Request,
@@ -660,11 +695,16 @@ async def api_op(
     aid = current_account_id(request)
     if op not in OP_TYPES:
         raise HTTPException(400, f"未知 op={op}")
+    connect_id, machine_name, resource_pool_uid = _resolve_op_target(aid, machine_id)
     acct = db.get_account(aid)
     client = _make_client_for(acct)
     try:
         try:
-            data = await client.operate_machine(machine_id, op)
+            data = await client.operate_machine(
+                connect_id, op,
+                machine_name=machine_name,
+                resource_pool_uid=resource_pool_uid,
+            )
         except PCASError as e:
             # token 失效时尝试一次刷新
             if PCASClient.is_auth_failure(e):
@@ -674,7 +714,11 @@ async def api_op(
                         aid, client.access_token, client.access_ticket,
                         acct.get("login_uid"), None,
                     )
-                    data = await client.operate_machine(machine_id, op)
+                    data = await client.operate_machine(
+                        connect_id, op,
+                        machine_name=machine_name,
+                        resource_pool_uid=resource_pool_uid,
+                    )
                 except PCASError as e2:
                     db.add_log(aid, machine_id, f"op:{op}", False, e2.msg)
                     return JSONResponse({"ok": False, "msg": e2.msg}, status_code=400)

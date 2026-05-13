@@ -27,15 +27,19 @@ RSA 加密分块：明文超过 117 字节时按 117 字节分块，每块 PKCS1
 字节密文，然后所有密文 concat → base64。握手包明文 124 字节 → 2 块 → 256 字节
 密文 → 344 base64 chars → 14+344 = 358 字节帧。
 
-### cmd_id 真实映射（实测）
+### cmd_id 真实编码（pcapng 字节级实测，2026-05-14）
 
-| 方向 | 用途                  | cmd_id | 明文 |
-|------|-----------------------|--------|------|
-| C→S  | HeartBeat             | **1**  | `{"command":"1","timeStamp":<millis>}` |
-| S→C  | HeartBeat 响应        | **2**  | `{"timeStamp":0}` |
-| C→S  | ConnectionRequest     | **3**  | `{"command":"3","ticket":"ticket:<userId>:<32hex>accountPwd","deviceId":"<wmic-serial>"}` |
-| S→C  | ConnectionResponse    | **4**  | `{"success":true,"reason":null}` |
-| S→C  | 各类 push（15 类）    | ≥5     | 见 PCAS_PROTOCOL.md §4.5 |
+cmd_id 字段是 4 字节 BE，但实际值在**高 16 位**（低 16 位恒为 0）：
+
+| 方向 | 用途              | header cmd_id 字段 | 数值          | 业务编号 |
+|------|-------------------|--------------------|---------------|----------|
+| C→S  | HeartBeat         | `00 01 00 00`      | `0x00010000`  | 1        |
+| S→C  | HeartBeat resp    | `00 02 00 00`      | `0x00020000`  | 2        |
+| C→S  | ConnectionRequest | `00 03 00 00`      | `0x00030000`  | 3        |
+| S→C  | ConnectionResp.   | `00 04 00 00`      | `0x00040000`  | 4        |
+
+之前的代码用 `struct.pack(">I", 3)` 生成 `00 00 00 03`，服务端不识别就 silent drop
+（TCP 连接保持，但完全不响应），导致 cem 握手 hang 满超时。
 
 ### 心跳间隔
 
@@ -82,11 +86,21 @@ PROTOCOL_MAGIC = 0x12345678
 FIELD_7 = b"\x01\x01"
 FIELD_B = b"\x00\x00"
 
-# cmd_id 枚举（全部抓包实测）
-CMD_HEARTBEAT_CLIENT = 1       # C→S 心跳
-CMD_HEARTBEAT_SERVER = 2       # S→C 心跳响应
-CMD_CONNECTION_REQUEST = 3     # C→S 握手
-CMD_CONNECTION_RESPONSE = 4    # S→C 握手响应
+# cmd_id 枚举 — 业务编号（编/解码时与 wire 格式 0xNNNN_0000 互转）
+CMD_HEARTBEAT_CLIENT = 1       # C→S 心跳        wire=0x00010000
+CMD_HEARTBEAT_SERVER = 2       # S→C 心跳响应    wire=0x00020000
+CMD_CONNECTION_REQUEST = 3     # C→S 握手        wire=0x00030000
+CMD_CONNECTION_RESPONSE = 4    # S→C 握手响应    wire=0x00040000
+
+
+def _cmd_to_wire(cmd: int) -> int:
+    """业务 cmd 编号 → wire u32（高 16 位放 cmd，低 16 位 reserved=0）。"""
+    return (cmd & 0xFFFF) << 16
+
+
+def _cmd_from_wire(wire: int) -> int:
+    """wire u32 → 业务 cmd 编号。低 16 位丢弃（reserved）。"""
+    return (wire >> 16) & 0xFFFF
 
 # 抓包确认：14 字节 header，双向对称
 HEADER_LEN = 14
@@ -116,7 +130,7 @@ def encode_frame(cmd_id: int, data: dict[str, Any]) -> bytes:
         struct.pack(">I", PROTOCOL_MAGIC)       # 4 bytes magic
         + FIELD_7                                # 2 bytes 0x0101
         + FIELD_B                                # 2 bytes 0x0000
-        + struct.pack(">I", cmd_id & 0xFFFFFFFF) # 4 bytes cmd_id
+        + struct.pack(">I", _cmd_to_wire(cmd_id)) # 4 bytes cmd_id (wire = cmd<<16)
         + struct.pack(">H", len(utf8_payload))   # 2 bytes payload length (u16)
     )
     assert len(header) == HEADER_LEN
@@ -135,7 +149,8 @@ async def decode_frame(reader: asyncio.StreamReader) -> tuple[int, dict[str, Any
             f"bad magic: expected 0x{PROTOCOL_MAGIC:08x}, got 0x{magic:08x} "
             f"(stream desync or wrong port?)"
         )
-    cmd_id = struct.unpack(">I", header[8:12])[0]
+    cmd_id_wire = struct.unpack(">I", header[8:12])[0]
+    cmd_id = _cmd_from_wire(cmd_id_wire)
     payload_len = struct.unpack(">H", header[12:14])[0]
 
     if payload_len == 0:

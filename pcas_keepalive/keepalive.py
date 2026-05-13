@@ -47,6 +47,15 @@ INITIAL_DELAY_SECONDS = 15
 # 单台机器 cem stream 维持时长（秒）
 CEM_KEEP_SECONDS = 30
 
+# 服务端"机器在线"状态关键词集合 — 与 pcas.client.is_running 保持一致。
+# 注意：开机后服务端返回的是 'available'（"可连接"），不是 'running'。
+RUNNING_STATUS_KEYWORDS = ("running", "active", "connected", "on", "available")
+
+
+def _is_machine_running(m: dict) -> bool:
+    s = str(m.get("status") or "").lower()
+    return any(k in s for k in RUNNING_STATUS_KEYWORDS)
+
 
 @dataclass
 class TaskStats:
@@ -290,8 +299,7 @@ class KeepAliveService:
         # 始终先刷一次机器列表 + token（防止 ticket 过期）
         await self._refresh_machines_with_retry(rt)
 
-        running_machines = [m for m in rt.machines
-                            if (m.get("status") or "").lower() in ("running", "active")]
+        running_machines = [m for m in rt.machines if _is_machine_running(m)]
         rt.stats.last_machines_count = len(running_machines)
 
         if not running_machines:

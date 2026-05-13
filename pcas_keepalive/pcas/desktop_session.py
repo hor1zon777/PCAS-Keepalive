@@ -1,38 +1,37 @@
-"""完整桌面会话模拟 — 24h 保活的核心动作。
+"""保活会话模拟 — 24h 保活的核心动作（cem-only 策略）。
 
 ## 设计依据
 
-抓包 `ydy2.pcapng` 显示官方 PCAS_App 进入云电脑桌面时的完整动作链：
+抓包 `ydy2.pcapng` 里 `machineConnect → cem` 那条链路是**用户主动打开桌面**
+的业务上报，依赖 ES 中已有的 connect doc（由 SPICE 桌面连接建立时创建）。
+保活场景模拟调 `machineConnect` 会撞 `document_missing_exception`。
+
+对照 `PCAS_PROTOCOL.md §4.6 / §4.7`，PCAS_App **启动期**就只做：
 
 ```
-T+0.00s  POST /session/machineConnect       告诉服务端"用户开始连接 X 号机器"
-T+0.10s  TCP connect 36.133.24.236:8090     建立 cem double stream
-T+0.15s  → ConnectionRequest (cmd_id=3)      RSA 加密 ticket+deviceId
-T+0.20s  ← ConnectionResponse  (cmd_id=4)    {"success":true,"reason":null}
-T+5.10s  → HeartBeat (cmd_id=1)              {"command":"1","timeStamp":...}
-T+5.13s  ← HeartBeat resp (cmd_id=2)         {"timeStamp":0}
-... (持续期间每 5 秒一次心跳，桌面像素流走 SPICE 端口)
-T+End    断开 cem stream                     连接结束
-T+End    POST /machine/pushConnectEventData  上报"会话结束"事件
+1. cem-webapi 登录成功 → accessToken
+2. DoubleStreamProvider._linkStart() → TCP connect 36.133.24.236:8090
+3. 立即发 ConnectionRequest(ticket=accessTicket, deviceId=...)
+4. 收到 ConnectionResponse(success=true) 后正式工作
+5. 周期发 HeartBeat（5 秒一次）
+6. 断开时关闭 socket（不需要业务侧上报）
 ```
 
-## 已知
+> **§4.7 真正的保活效果取决于这条 cem double stream 是否在线**
 
-- **24h 内调用一次完整会话即可触发"用户活跃"标记**，足以阻止云电脑空闲关机
-- cem stream **不需要持续 24h 在线** —— 短暂会话也能让服务端记一笔
-- machineConnect 必须配合 cem stream 握手，单调 API 不够
+业务 REST 接口 `recordDeviceInfo` 仍然保留 — 让服务端记一笔"客户端登录信息"，
+失败不短路。`machineConnect` / `pushConnectEventData` 全部移除。
 """
 from __future__ import annotations
 
 import asyncio
 import logging
 import time
-import uuid
 from dataclasses import dataclass
 from typing import Any
 
 from .cem_stream import CemStreamClient
-from .client import PCASClient
+from .client import PCASClient, create_official_session_context
 
 log = logging.getLogger("pcas.desktop_session")
 
@@ -55,14 +54,6 @@ class DesktopSessionResult:
     cem_pushes_received: int
     duration_ms: int
     error: str = ""
-
-
-def _new_session_ids(machine_id: str) -> tuple[str, str]:
-    """生成 clientConnectId + clientLoginUid（与官方客户端格式接近的 UUID）。"""
-    base = f"{machine_id}-{int(time.time()*1000)}"
-    connect_id = uuid.uuid5(uuid.NAMESPACE_DNS, "connect-" + base).hex
-    login_uid = uuid.uuid5(uuid.NAMESPACE_DNS, "login-" + base).hex
-    return connect_id, login_uid
 
 
 async def resolve_cem_endpoint(client: PCASClient) -> tuple[str, int]:
@@ -101,7 +92,12 @@ async def simulate_desktop_session(
     """
     machine_id = machine.get("machineId") or machine.get("instanceId") or ""
     machine_name = machine.get("machineName", "") or ""
-    connect_id, login_uid = _new_session_ids(machine_id)
+
+    # 使用与 Node 参考 `createOfficialSessionContext` 等价的生成器
+    # （Python 端在 pcas/client.py 已实现），保证 4 个 id 一一对齐。
+    ctx = create_official_session_context(machine_id)
+    login_uid = ctx["clientLoginUid"]
+    connect_id = ctx["clientConnectId"]
 
     log.info("desktop session start: machine=%s (%s) keep=%ds",
              machine_name, machine_id, keep_seconds)
@@ -132,20 +128,18 @@ async def simulate_desktop_session(
     )
 
     try:
-        # ---- Step 1: machineConnect 上报"开始连接" ----
+        # ---- Step 0: recordDeviceInfo 注册当前 clientLoginUid（最佳努力） ----
+        # 服务端按 clientLoginUid 索引记一笔"客户端登录信息"。
+        # 这一步成败不影响 cem stream 保活，失败仅打 warning。
         try:
-            await client.machine_connect(
-                machine_id=machine_id,
-                machine_name=machine_name,
-                client_login_uid=login_uid,
-                client_connect_id=connect_id,
-            )
-            log.info("step 1 ok: machineConnect")
+            record = await client.record_device_info(login_uid)
+            server_login_uid = (record.get("body") or {}).get("loginUid", "")
+            log.info("step 0 ok: recordDeviceInfo serverLoginUid=%s", server_login_uid)
         except Exception as e:
-            log.warning("step 1 failed: machineConnect: %s", e)
-            # 继续 — 即使 machineConnect 失败，cem stream 握手也可能让服务端记录活跃
+            log.warning("step 0 failed (non-fatal): recordDeviceInfo: %s", e)
 
-        # ---- Step 2: cem stream 握手 ----
+        # ---- Step 1: cem stream 握手 ----
+        # 保活的核心。PCAS_App 启动期就是这一步建立长连接，不依赖 machineConnect。
         if not client.access_ticket:
             raise RuntimeError("cem stream 需要 accessTicket，但 client.access_ticket 为空")
 
@@ -156,9 +150,9 @@ async def simulate_desktop_session(
         result.cem_handshake_ok = bool(handshake.get("success"))
         if not result.cem_handshake_ok:
             raise RuntimeError(f"cem handshake refused: {handshake}")
-        log.info("step 2 ok: cem handshake success=%s", handshake.get("success"))
+        log.info("step 1 ok: cem handshake success=%s", handshake.get("success"))
 
-        # ---- Step 3: cem stream 维持心跳 N 秒 ----
+        # ---- Step 2: cem stream 维持心跳 N 秒 ----
         # 跑 read_loop + heartbeat_loop 在 background；主线程睡 keep_seconds
         run_task = asyncio.create_task(cem.run())
         try:
@@ -173,22 +167,8 @@ async def simulate_desktop_session(
         # 估算心跳次数（实际 send 数取决于 send_heartbeat 调用次数；run_loop 内部已计数）
         result.cem_heartbeats_sent = max(1, keep_seconds // 5)
         result.cem_pushes_received = push_count[0]
-        log.info("step 3 ok: cem stream maintained %ds, ~%d heartbeats, %d pushes",
+        log.info("step 2 ok: cem stream maintained %ds, ~%d heartbeats, %d pushes",
                  keep_seconds, result.cem_heartbeats_sent, push_count[0])
-
-        # ---- Step 4: pushConnectEventData 上报"会话结束" ----
-        try:
-            await client.push_connect_event_data(
-                machine_id=machine_id,
-                client_connect_id=connect_id,
-                client_login_uid=login_uid,
-                event_type="desktop_disconnect",
-                success=True,
-                extra={"durationSeconds": keep_seconds},
-            )
-            log.info("step 4 ok: pushConnectEventData (disconnect)")
-        except Exception as e:
-            log.warning("step 4 failed: pushConnectEventData: %s", e)
 
         result.success = True
 
