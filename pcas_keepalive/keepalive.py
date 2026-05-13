@@ -174,16 +174,46 @@ class KeepAliveService:
             mobile=acct["mobile"],
         )
 
-        # 1. 登录
+        # 1. 登录：优先用现有 accessTicket 续期；失败回退到密码登录
         settings = get_settings()
         password = aes_open(acct["password_blob"], settings.local_key_hex)
         client = self._make_client(rt)
+        # 把 DB 里现有 ticket / token 灌进来，给 refresh_token 用
+        client.access_ticket = acct.get("access_ticket") or ""
+        client.access_token = acct.get("access_token") or ""
         try:
-            result = await client.login_by_password(rt.mobile, password)
-            if result.get("status") != "success":
-                raise RuntimeError(
-                    f"登录未完成（{result.get('challengeType')}）— UI 上完成可信设备验证后重试"
-                )
+            result: dict | None = None
+
+            # 1a) accessTicket 续期路径（短信登录添加的账号也能走通）
+            if client.access_ticket:
+                try:
+                    refreshed = await client.refresh_token()
+                    result = {
+                        "status": "success",
+                        "accessTicket": client.access_ticket,
+                        "accessToken": refreshed["accessToken"],
+                        "userName": refreshed.get("userName", ""),
+                        "machines": refreshed["machines"],
+                    }
+                    log.info("[%s] keepalive started via accessTicket refresh", rt.mobile)
+                except PCASError as e:
+                    log.info("[%s] ticket refresh failed (%s), fallback to password login",
+                             rt.mobile, e.msg)
+
+            # 1b) 密码登录路径
+            if result is None:
+                if not password:
+                    raise RuntimeError(
+                        "此账号是短信登录添加的，本地未保存密码；"
+                        "且现有 accessTicket 已过期。请回登录页用密码登录一次以补全凭据。"
+                    )
+                result = await client.login_by_password(rt.mobile, password)
+                if result.get("status") != "success":
+                    raise RuntimeError(
+                        f"登录未完成（{result.get('challengeType')}）— "
+                        f"UI 上完成可信设备验证后重试"
+                    )
+
             rt.access_ticket = result["accessTicket"]
             rt.access_token = result["accessToken"]
             rt.user_name = result.get("userName", "")
@@ -379,6 +409,10 @@ class KeepAliveService:
             settings = get_settings()
             acct = db.get_account(rt.account_id)
             password = aes_open(acct["password_blob"], settings.local_key_hex)
+            if not password:
+                db.add_log(rt.account_id, None, "token_refresh", False,
+                           "ticket 已过期且本地无密码（短信登录账号）；需回登录页用密码补登一次")
+                return False
             result = await client.login_by_password(rt.mobile, password)
             if result.get("status") != "success":
                 db.add_log(rt.account_id, None, "token_refresh", False,
