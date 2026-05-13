@@ -1,0 +1,68 @@
+# pcas_keepalive — docker-compose 部署
+#
+# 用法：
+#   1. cp .env.example .env  并按需修改（至少把 session_secret / local_key_hex 改掉！）
+#   2. docker compose up -d --build
+#   3. 浏览器访问 http://<host>:8765
+#
+# 数据持久化：
+#   ./data/pcas.db   SQLite 数据库（账号/token/日志）
+#   首次启动会自动创建。
+
+services:
+  pcas-keepalive:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: pcas-keepalive:latest
+    container_name: pcas-keepalive
+    restart: unless-stopped
+
+    # 容器内绑 0.0.0.0:8765；这里映射到宿主机 8765
+    # 想改宿主机端口：HOST_PORT=18765 docker compose up -d
+    ports:
+      - "${HOST_PORT:-8765}:8765"
+
+    # .env 文件由 pydantic-settings 在 /app 自动读取；
+    # 也可以这里覆盖关键变量
+    env_file:
+      - .env
+    environment:
+      # 容器内固定参数（防止 .env 不小心改坏）
+      HOST: 0.0.0.0
+      PORT: 8765
+      DB_PATH: /app/data/pcas.db
+      TZ: ${TZ:-Asia/Shanghai}
+
+    volumes:
+      # 数据持久化（pcas.db）
+      - ./data:/app/data
+      # 可选：把宿主机时间挂进容器（24h 调度依赖正确时间）
+      - /etc/localtime:/etc/localtime:ro
+
+    # 健康检查由 Dockerfile HEALTHCHECK 提供；这里只重申策略
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:8765/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+    # 资源限制（按需调整）
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: "1.0"
+
+    # 日志滚动：避免 docker logs 把磁盘吃满
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+# 显式声明本地 volume（也支持改成命名 volume 见下方注释）
+# volumes:
+#   pcas_data:
+#     driver: local

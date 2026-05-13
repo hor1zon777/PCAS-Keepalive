@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}PCAS Keepalive{% endblock %}</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="/static/style.css">
+    {% from "partials/icons.html" import icon %}
+</head>
+<body class="min-h-screen bg-slate-50 text-slate-900 antialiased">
+
+<header class="border-b border-slate-200 bg-white/80 backdrop-blur sticky top-0 z-10">
+  <div class="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between">
+    <a href="/" class="flex items-center gap-2.5 text-slate-900 hover:opacity-80 transition">
+      <span class="text-indigo-600">{{ icon('logo', 'h-6 w-6') }}</span>
+      <h1 class="text-lg font-semibold tracking-tight">PCAS Keepalive</h1>
+      <span class="text-slate-400 text-xs hidden sm:inline">v0.4 · 移动云电脑 24h 保活</span>
+    </a>
+    {% block topright %}
+      {% if admin %}
+        <div class="flex items-center gap-2 text-sm">
+          <span class="flex items-center gap-1.5 text-slate-600">
+            <span class="text-slate-400">{{ icon('user', 'h-4 w-4') }}</span>
+            {{ admin.username }}
+          </span>
+          <button onclick="if(confirm('退出管理员登录？')){fetch('/admin/logout',{method:'POST'}).then(()=>location.href='/admin/login')}"
+                  class="flex items-center gap-1 px-2.5 py-1.5 rounded-md bg-slate-100 hover:bg-slate-200 text-slate-600 text-xs">
+            {{ icon('logout', 'h-3.5 w-3.5') }}
+            <span>退出管理员</span>
+          </button>
+        </div>
+      {% endif %}
+    {% endblock %}
+  </div>
+</header>
+
+<main class="max-w-6xl mx-auto px-6 py-8">
+  {% block content %}{% endblock %}
+</main>
+
+<footer class="max-w-6xl mx-auto px-6 py-6 text-xs text-slate-500 border-t border-slate-200 flex items-start gap-2">
+  <span class="text-amber-600 mt-px shrink-0">{{ icon('warning', 'h-4 w-4') }}</span>
+  <p>
+    非官方第三方客户端。本程序仅用于操作你自己的中国移动云电脑账号。
+    调用未公开 API 可能违反服务条款，<b>使用风险自担</b>。
+  </p>
+</footer>
+
+</body>
+</html>

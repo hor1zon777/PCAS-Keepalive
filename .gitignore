@@ -1,0 +1,78 @@
+# ──────────────────────────────────────────────────────────────────
+# pcas / 移动云电脑 — 项目根 .gitignore
+# ──────────────────────────────────────────────────────────────────
+
+# ===== 原始样本：体积大、含版权且对开发者公开属于灰色区 =====
+*.apk
+*.aab
+*.ipa
+
+# ===== 反编 / 解包中间产物（可重新生成，体积巨大） =====
+# blutter Dart AOT 反编器源码（git clone 来的，不属于本项目）
+blutter-main/
+# blutter 反编输出（195+ MB asm 反编源码 + IDA script + frida script）
+blutter_out/
+# jadx + apktool 解包输出
+pcas_out/
+
+# ===== 抓包文件（含 RSA 加密的 ticket / deviceId，泄露即可重放） =====
+*.pcapng
+*.pcap
+*.cap
+cem.dump
+*.har
+
+# ===== 运行时密钥 / 凭据（哪怕加密了也别提交） =====
+*.key
+*.pem
+*.p12
+*.pfx
+
+# ===== Python 全局 =====
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.venv/
+venv/
+.python-version.local
+.ruff_cache/
+.mypy_cache/
+.pytest_cache/
+.coverage
+htmlcov/
+*.egg-info/
+dist/
+build/
+
+# ===== uv =====
+# uv.lock 应该提交，但本机虚拟环境不提交
+# （.venv 已在上面）
+
+# ===== SQLite =====
+*.db
+*.db-journal
+*.sqlite
+*.sqlite-journal
+*.sqlite3
+
+# ===== 本地配置 =====
+.env
+.env.local
+.env.*.local
+
+# ===== Docker 持久化数据 =====
+pcas_keepalive/data/
+
+# ===== IDE / 编辑器 =====
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# ===== 系统 =====
+ehthumbs.db
+desktop.ini

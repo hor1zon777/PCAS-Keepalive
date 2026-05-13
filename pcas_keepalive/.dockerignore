@@ -1,0 +1,49 @@
+# 把不需要进镜像的东西排除掉，减小 build context + 镜像体积
+# ─────────────────────────────────────────────────────────
+
+# 版本控制
+.git
+.gitignore
+.gitattributes
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.venv/
+venv/
+.python-version.local
+.ruff_cache/
+.pytest_cache/
+.mypy_cache/
+
+# 运行时数据（包含手机号 / token，绝不能进镜像！）
+*.db
+*.db-journal
+*.sqlite*
+pcas.db
+data/
+
+# 本地配置（用户应该通过 docker-compose env_file / -e 注入）
+.env
+.env.local
+.env.*.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+.DS_Store
+
+# Docker 自身
+Dockerfile
+.dockerignore
+docker-compose.yml
+docker-compose.*.yml
+
+# 文档 / 截图
+*.md
+docs/
+screenshots/
+*.pcapng

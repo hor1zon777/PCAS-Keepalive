@@ -1,0 +1,29 @@
+[project]
+name = "pcas-keepalive"
+version = "0.1.0"
+description = "中国移动云电脑 PCAS_App 第三方 Web 客户端 - 手机号+密码登录 + 24h 主动保活"
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [{ name = "PCAS Keepalive" }]
+
+dependencies = [
+    "fastapi>=0.115.5",
+    "uvicorn[standard]>=0.32.1",
+    "httpx>=0.27.2",
+    "cryptography>=44.0.0",
+    "apscheduler>=3.10.4",
+    "jinja2>=3.1.4",
+    "python-multipart>=0.0.17",
+    "itsdangerous>=2.2.0",
+    "pydantic-settings>=2.6.1",
+    "h2>=4.3.0",
+    "grpcio>=1.80.0",
+]
+
+[tool.uv]
+package = false
+
+[dependency-groups]
+dev = [
+    "ruff>=0.7.0",
+]

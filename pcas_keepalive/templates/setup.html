@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+{% from "partials/icons.html" import icon %}
+{% block title %}设置管理员 — PCAS Keepalive{% endblock %}
+
+{% block content %}
+<div class="max-w-md mx-auto mt-12">
+  <div class="bg-white border border-slate-200 rounded-2xl shadow-sm p-8">
+    <h2 class="text-2xl font-semibold mb-1 text-slate-900">首次访问 — 设置管理员</h2>
+    <p class="text-sm text-slate-500 mb-6">
+      此账号用于访问本 Web 程序。之后每次登录都需要它。
+    </p>
+
+    <form id="form-setup" class="space-y-4">
+      <div>
+        <label class="text-xs font-medium text-slate-600 mb-1.5 block">管理员用户名 <span class="text-slate-400 font-normal">（≥3 字符）</span></label>
+        <input name="username" type="text" autocomplete="username" required minlength="3" maxlength="32"
+               placeholder="例如 admin"
+               class="w-full px-3 py-2 rounded-lg bg-white border border-slate-300 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 outline-none transition">
+      </div>
+      <div>
+        <label class="text-xs font-medium text-slate-600 mb-1.5 block">密码 <span class="text-slate-400 font-normal">（≥6 字符）</span></label>
+        <input name="password" type="password" autocomplete="new-password" required minlength="6"
+               class="w-full px-3 py-2 rounded-lg bg-white border border-slate-300 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 outline-none transition">
+      </div>
+      <div>
+        <label class="text-xs font-medium text-slate-600 mb-1.5 block">确认密码</label>
+        <input name="password_confirm" type="password" autocomplete="new-password" required minlength="6"
+               class="w-full px-3 py-2 rounded-lg bg-white border border-slate-300 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 outline-none transition">
+      </div>
+      <button type="submit"
+              class="w-full py-2.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white font-medium transition shadow-sm">
+        创建管理员
+      </button>
+    </form>
+
+    <p id="setup-msg" class="text-sm mt-4 min-h-[1.5em]"></p>
+  </div>
+
+  <div class="bg-blue-50 border border-blue-200 rounded-xl p-4 mt-4 text-xs text-blue-900 flex gap-2">
+    <span class="text-blue-500 shrink-0 mt-0.5">{{ icon('info', 'h-4 w-4') }}</span>
+    <div>
+      <p class="font-medium mb-1">为什么需要这步？</p>
+      <p class="text-blue-800/80">PCAS Keepalive 在本机启动一个 Web 服务（默认 127.0.0.1:8765）。即使监听本地，也需要
+      一个访问凭证防止他人通过浏览器或局域网直接看到你的移动云账号信息和操作按钮。</p>
+    </div>
+  </div>
+</div>
+
+<script>
+function setMsg(t, err) {
+  const el = document.getElementById('setup-msg');
+  el.textContent = t || '';
+  el.className = 'text-sm mt-4 min-h-[1.5em] ' + (err ? 'text-rose-600' : 'text-emerald-600');
+}
+
+document.getElementById('form-setup').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const fd = new FormData(e.target);
+  if (fd.get('password') !== fd.get('password_confirm')) {
+    setMsg('两次密码不一致', true);
+    return;
+  }
+  setMsg('创建中…');
+  const r = await fetch('/setup', { method: 'POST', body: fd });
+  const b = await r.json().catch(() => ({}));
+  if (r.status === 200 && b.ok) {
+    setMsg('已创建，跳转中…');
+    location.href = '/';
+  } else {
+    setMsg('创建失败: ' + (b.msg || r.status), true);
+  }
+});
+</script>
+{% endblock %}

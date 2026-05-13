@@ -1,0 +1,24 @@
+# Python / uv
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.python-version.local
+.ruff_cache/
+
+# 运行时数据（含手机号/token，绝不要提交）
+*.db
+*.db-journal
+*.sqlite*
+pcas.db
+
+# 本地配置（含 secret）
+.env
+.env.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+.DS_Store

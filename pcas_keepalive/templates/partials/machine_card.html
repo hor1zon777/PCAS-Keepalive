@@ -1,0 +1,91 @@
+{# 单个机器卡片 — Jinja 渲染。
+   变量：m（机器对象，db.list_machines 返回的 dict），tasks（dict[machine_id]→task）
+#}
+{% set t = tasks.get(m.machine_id) %}
+{% set status_color = {
+  'running': 'emerald', 'active': 'emerald',
+  'stopped': 'rose', 'PowerOff': 'rose',
+  'starting': 'amber', 'shutting': 'amber'
+}.get(m.status, 'slate') %}
+
+<div class="bg-slate-950/40 ring-1 ring-slate-800 rounded-lg p-4">
+  <div class="flex items-start justify-between gap-3">
+    <div class="flex-1 min-w-0">
+      <div class="font-medium truncate">{{ m.machine_name or '未命名机器' }}</div>
+      <div class="text-xs text-slate-500 font-mono truncate">{{ m.machine_id }}</div>
+    </div>
+    <span class="text-xs px-2 py-0.5 rounded ring-1 ring-{{ status_color }}-500/40
+                 text-{{ status_color }}-400 bg-{{ status_color }}-500/10 flex-shrink-0">
+      {{ m.status or 'unknown' }}
+    </span>
+  </div>
+
+  {% if m.instance_id or m.resource_id or m.vm_id %}
+  <details class="mt-3 text-xs text-slate-500">
+    <summary class="cursor-pointer hover:text-slate-300">附加信息</summary>
+    <dl class="mt-2 space-y-0.5 font-mono">
+      {% if m.instance_id %}<div>instance: {{ m.instance_id }}</div>{% endif %}
+      {% if m.resource_id %}<div>resource: {{ m.resource_id }}</div>{% endif %}
+      {% if m.vm_id %}<div>vm: {{ m.vm_id }}</div>{% endif %}
+      <div class="text-slate-600 mt-1">last seen: <span data-ts="{{ m.last_seen_at }}">{{ m.last_seen_at }}</span></div>
+    </dl>
+  </details>
+  {% endif %}
+
+  <div class="mt-3 flex flex-wrap gap-1.5">
+    <button onclick="doOp('{{ m.machine_id }}', 'start')"
+            class="px-2.5 py-1 text-xs rounded bg-emerald-500/20 text-emerald-300 hover:bg-emerald-500/30 ring-1 ring-emerald-500/40">
+      ▶ 开机
+    </button>
+    <button onclick="doOp('{{ m.machine_id }}', 'restart')"
+            class="px-2.5 py-1 text-xs rounded bg-amber-500/20 text-amber-300 hover:bg-amber-500/30 ring-1 ring-amber-500/40">
+      ↻ 重启
+    </button>
+    <button onclick="doOp('{{ m.machine_id }}', 'shutdown')"
+            class="px-2.5 py-1 text-xs rounded bg-rose-500/20 text-rose-300 hover:bg-rose-500/30 ring-1 ring-rose-500/40">
+      ⏻ 关机
+    </button>
+    <button onclick="doOp('{{ m.machine_id }}', 'reset')"
+            class="px-2.5 py-1 text-xs rounded bg-slate-800 text-slate-400 hover:bg-slate-700">
+      ⟲ 重置
+    </button>
+  </div>
+
+  <div class="mt-3 pt-3 border-t border-slate-800">
+    {% if t %}
+      <div class="flex items-center justify-between text-xs">
+        <div>
+          <span class="text-slate-500">保活</span>
+          {% if t.enabled %}
+            <span class="text-emerald-400">●</span> 每 {{ t.interval_minutes }} 分钟
+          {% else %}
+            <span class="text-slate-600">○</span> 已暂停
+          {% endif %}
+        </div>
+        <div class="flex gap-1">
+          <button onclick="runOnceKeepalive('{{ m.machine_id }}')"
+                  class="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs">立刻跑一次</button>
+          {% if t.enabled %}
+            <button onclick="toggleKeepalive('{{ m.machine_id }}', false)"
+                    class="px-2 py-0.5 rounded bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 ring-1 ring-rose-500/40 text-xs">暂停</button>
+          {% else %}
+            <button onclick="toggleKeepalive('{{ m.machine_id }}', true)"
+                    class="px-2 py-0.5 rounded bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 ring-1 ring-emerald-500/40 text-xs">启用</button>
+          {% endif %}
+        </div>
+      </div>
+      {% if t.last_run_at %}
+      <div class="text-xs text-slate-600 mt-1 font-mono">
+        上次：<span data-ts="{{ t.last_run_at }}">{{ t.last_run_at }}</span>
+        · {{ t.last_status }}
+        {% if t.last_message %} — {{ t.last_message[:80] }}{% endif %}
+      </div>
+      {% endif %}
+    {% else %}
+      <button onclick="registerKeepalive('{{ m.machine_id }}')"
+              class="w-full px-3 py-1.5 text-xs rounded bg-slate-800 hover:bg-slate-700 ring-1 ring-slate-700">
+        + 启用 24h 保活
+      </button>
+    {% endif %}
+  </div>
+</div>

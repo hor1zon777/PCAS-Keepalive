@@ -1,0 +1,33 @@
+/* PCAS Keepalive - minor custom styles on top of Tailwind */
+
+/* unix epoch -> readable */
+[data-ts] {
+  font-feature-settings: 'tnum';
+}
+
+/* details > summary hover */
+details > summary {
+  list-style: none;
+}
+details > summary::-webkit-details-marker {
+  display: none;
+}
+
+/* subtle button hover */
+button:active {
+  transform: scale(0.98);
+}
+
+/* fade-in for status badges */
+@keyframes fadein {
+  from { opacity: 0; transform: translateY(2px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.fade-in {
+  animation: fadein 200ms ease-out;
+}
+
+/* monospace numbers in time/id */
+.font-mono, code {
+  font-feature-settings: 'tnum';
+}

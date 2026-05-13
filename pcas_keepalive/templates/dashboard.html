@@ -1,0 +1,310 @@
+{% extends "base.html" %}
+{% from "partials/icons.html" import icon %}
+{% block title %}控制台 — {{ account.mobile }}{% endblock %}
+
+{% block topright %}
+<div class="flex items-center gap-2 text-sm">
+  <span class="flex items-center gap-1.5 text-slate-600">
+    <span class="text-slate-400">{{ icon('user', 'h-4 w-4') }}</span>
+    {{ admin.username }}
+  </span>
+  <span class="text-slate-300">·</span>
+  <span class="text-slate-700 font-mono">{{ account.mobile }}</span>
+  {% if all_accounts and all_accounts|length > 1 %}
+  <select onchange="if(this.value){location.href='/account/'+this.value}"
+          class="px-2 py-1 rounded-md bg-white border border-slate-300 text-slate-600 text-xs">
+    <option value="">切换账号…</option>
+    {% for a in all_accounts %}
+      {% if a.id != account.id %}
+        <option value="{{ a.id }}">{{ a.mobile }}</option>
+      {% endif %}
+    {% endfor %}
+  </select>
+  {% endif %}
+  <a href="/overview" class="flex items-center gap-1 px-2.5 py-1.5 rounded-md bg-slate-100 hover:bg-slate-200 text-slate-600 text-xs">
+    {{ icon('home', 'h-3.5 w-3.5') }}
+    总览
+  </a>
+  <button onclick="if(confirm('退出当前移动云账号？')){fetch('/api/logout',{method:'POST'}).then(()=>location.href='/overview')}"
+          class="px-2.5 py-1.5 rounded-md bg-slate-100 hover:bg-slate-200 text-slate-600 text-xs">退出账号</button>
+  <button onclick="if(confirm('退出管理员？')){fetch('/admin/logout',{method:'POST'}).then(()=>location.href='/admin/login')}"
+          class="flex items-center gap-1 px-2.5 py-1.5 rounded-md bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs border border-rose-200">
+    {{ icon('logout', 'h-3.5 w-3.5') }}
+    管理员
+  </button>
+</div>
+{% endblock %}
+
+{% block content %}
+
+{# 顶部摘要 #}
+<div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+  <div class="bg-white border border-slate-200 rounded-xl p-5">
+    <div class="text-xs text-slate-500">当前账号</div>
+    <div class="text-lg mt-1 font-medium text-slate-900">{{ account.mobile }}</div>
+    <div class="text-xs text-slate-400 mt-1 font-mono truncate">uid={{ account.login_uid or '-' }}</div>
+  </div>
+  <div class="bg-white border border-slate-200 rounded-xl p-5">
+    <div class="text-xs text-slate-500">机器数量</div>
+    <div class="text-lg mt-1 font-medium text-slate-900">{{ machines|length }} 台</div>
+  </div>
+  <div class="bg-white border border-slate-200 rounded-xl p-5">
+    <div class="text-xs text-slate-500">24h 保活</div>
+    <div class="text-lg mt-1 font-medium flex items-center gap-1.5">
+      {% if ka_status.running %}
+        <span class="text-emerald-500">{{ icon('circle-on', 'h-3 w-3') }}</span>
+        <span class="text-emerald-700">运行中</span>
+      {% else %}
+        <span class="text-slate-400">{{ icon('circle-off', 'h-3 w-3') }}</span>
+        <span class="text-slate-600">已停止</span>
+      {% endif %}
+    </div>
+    <div class="text-xs text-slate-400 mt-1">4 路任务（5/30 min）</div>
+  </div>
+  <div class="bg-white border border-slate-200 rounded-xl p-5">
+    <div class="text-xs text-slate-500 mb-2">操作</div>
+    <div class="flex flex-col gap-1.5">
+      <button onclick="refreshMachines()"
+              class="flex items-center justify-center gap-1.5 px-2 py-1.5 text-xs rounded-md bg-white hover:bg-slate-50 border border-slate-300 text-slate-700">
+        {{ icon('refresh', 'h-3.5 w-3.5') }}
+        刷新机器
+      </button>
+      {% if ka_status.running %}
+        <button onclick="triggerKa()"
+                class="flex items-center justify-center gap-1.5 px-2 py-1.5 text-xs rounded-md bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200"
+                title="不等 23h 周期，立即跑一次桌面会话模拟">
+          {{ icon('play', 'h-3.5 w-3.5') }}
+          立即触发
+        </button>
+        <button onclick="stopKa()"
+                class="flex items-center justify-center gap-1.5 px-2 py-1.5 text-xs rounded-md bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200">
+          {{ icon('pause', 'h-3.5 w-3.5') }}
+          停止保活
+        </button>
+      {% else %}
+        <button onclick="startKa()"
+                class="flex items-center justify-center gap-1.5 px-2 py-1.5 text-xs rounded-md bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200">
+          {{ icon('play', 'h-3.5 w-3.5') }}
+          启动保活
+        </button>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+{# 保活任务运行情况 #}
+{% if ka_status.running and ka_status.tasks %}
+<section class="bg-white border border-slate-200 rounded-2xl shadow-sm p-6 mb-6">
+  <h2 class="text-lg font-medium text-slate-900 mb-4 flex items-center gap-2">
+    <span class="text-indigo-500">{{ icon('pulse', 'h-5 w-5') }}</span>
+    保活任务运行情况
+    {% if ka_status.cem_endpoint %}
+      <span class="ml-auto text-xs font-mono text-slate-400">cem stream {{ ka_status.cem_endpoint }}</span>
+    {% endif %}
+  </h2>
+  <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+    {% set name_map = {
+      'daily_desktop_session': '每日桌面会话模拟 (23h 周期)'
+    } %}
+    {% for tid, s in ka_status.tasks.items() %}
+    <div class="bg-slate-50 border border-slate-200 rounded-lg p-3">
+      <div class="text-xs font-medium text-slate-700">{{ name_map.get(tid, tid) }}</div>
+      <div class="mt-2 text-sm flex items-center gap-2">
+        <span class="text-emerald-600 font-mono">{{ s.success }}</span>
+        <span class="text-slate-300">/</span>
+        <span class="text-rose-600 font-mono">{{ s.fail }}</span>
+        {% if s.consecutive_fail > 0 %}
+          <span class="text-rose-500 text-xs">(连续 {{ s.consecutive_fail }} 失败)</span>
+        {% endif %}
+        {% if s.last_succeeded_machines is defined %}
+          <span class="text-slate-400 text-xs ml-auto">机器 {{ s.last_succeeded_machines }}/{{ s.last_machines_count }}</span>
+        {% endif %}
+      </div>
+      <div class="text-xs text-slate-500 mt-1.5">
+        {% if s.last_time %}
+          最后: {{ s.last_time }} · {{ s.last_status }}
+        {% else %}
+          等待首次执行...
+        {% endif %}
+      </div>
+      {% if s.last_error %}
+        <div class="text-xs text-rose-500/80 mt-1 truncate" title="{{ s.last_error }}">{{ s.last_error }}</div>
+      {% endif %}
+    </div>
+    {% endfor %}
+  </div>
+</section>
+{% endif %}
+
+{# 机器列表 #}
+<section class="bg-white border border-slate-200 rounded-2xl shadow-sm p-6 mb-6">
+  <h2 class="text-lg font-medium text-slate-900 mb-4 flex items-center gap-2">
+    <span class="text-indigo-500">{{ icon('server', 'h-5 w-5') }}</span>
+    机器列表
+  </h2>
+
+  {% if not machines %}
+    <p class="text-slate-500 text-sm">无机器。点击右上角「刷新机器」从服务端拉取。</p>
+  {% endif %}
+
+  <div class="grid grid-cols-1 lg:grid-cols-2 gap-3">
+    {% for m in machines %}
+      {% set s = (m.status or '')|lower %}
+      {% if 'running' in s or 'active' in s or 'available' in s %}
+        {% set color = 'emerald' %}
+      {% elif 'stopped' in s or 'poweroff' in s or 'off' == s %}
+        {% set color = 'slate' %}
+      {% elif 'start' in s or 'shut' in s %}
+        {% set color = 'amber' %}
+      {% else %}
+        {% set color = 'slate' %}
+      {% endif %}
+      <div class="bg-slate-50 border border-slate-200 rounded-lg p-4">
+        <div class="flex items-start justify-between gap-3">
+          <div class="flex-1 min-w-0">
+            <div class="font-medium truncate text-slate-900">{{ m.machine_name or '未命名机器' }}</div>
+            <div class="text-xs text-slate-500 font-mono truncate mt-0.5">{{ m.machine_id }}</div>
+          </div>
+          <span class="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded
+                       bg-{{ color }}-50 text-{{ color }}-700 border border-{{ color }}-200 flex-shrink-0">
+            <span class="text-{{ color }}-500">{{ icon('circle-on', 'h-2 w-2') }}</span>
+            {{ m.status or 'unknown' }}
+          </span>
+        </div>
+
+        {% if m.instance_id or m.resource_id %}
+        <details class="mt-3 text-xs text-slate-500">
+          <summary class="cursor-pointer hover:text-slate-700">附加信息</summary>
+          <dl class="mt-2 space-y-0.5 font-mono text-[10px]">
+            {% if m.instance_id %}<div>instance: {{ m.instance_id }}</div>{% endif %}
+            {% if m.resource_id %}<div>resource pool: {{ m.resource_id }}</div>{% endif %}
+          </dl>
+        </details>
+        {% endif %}
+
+        <div class="mt-3 flex flex-wrap gap-1.5">
+          <button onclick="doOp('{{ m.machine_id }}', 'start')"
+                  class="flex items-center gap-1 px-2.5 py-1 text-xs rounded-md bg-white hover:bg-emerald-50 text-emerald-700 border border-emerald-200">
+            {{ icon('play', 'h-3 w-3') }}
+            开机
+          </button>
+          <button onclick="doOp('{{ m.machine_id }}', 'restart')"
+                  class="flex items-center gap-1 px-2.5 py-1 text-xs rounded-md bg-white hover:bg-amber-50 text-amber-700 border border-amber-200">
+            {{ icon('refresh', 'h-3 w-3') }}
+            重启
+          </button>
+          <button onclick="doOp('{{ m.machine_id }}', 'shutdown')"
+                  class="flex items-center gap-1 px-2.5 py-1 text-xs rounded-md bg-white hover:bg-rose-50 text-rose-700 border border-rose-200">
+            {{ icon('power', 'h-3 w-3') }}
+            关机
+          </button>
+        </div>
+      </div>
+    {% endfor %}
+  </div>
+</section>
+
+{# 日志 #}
+<section class="bg-white border border-slate-200 rounded-2xl shadow-sm p-6">
+  <h2 class="text-lg font-medium text-slate-900 mb-4 flex items-center gap-2">
+    <span class="text-indigo-500">{{ icon('list', 'h-5 w-5') }}</span>
+    操作日志（最近 30 条）
+  </h2>
+  <div class="overflow-x-auto">
+    <table class="w-full text-sm">
+      <thead class="text-xs text-slate-500 uppercase border-b border-slate-200">
+        <tr>
+          <th class="text-left py-2 px-3 font-medium">时间</th>
+          <th class="text-left py-2 px-3 font-medium">机器</th>
+          <th class="text-left py-2 px-3 font-medium">操作</th>
+          <th class="text-left py-2 px-3 font-medium">结果</th>
+          <th class="text-left py-2 px-3 font-medium">详情</th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for l in logs %}
+        <tr class="border-b border-slate-100 hover:bg-slate-50/50 transition">
+          <td class="py-2 px-3 font-mono text-slate-500 text-xs">{{ l.created_at | timestamp }}</td>
+          <td class="py-2 px-3 font-mono text-slate-600 text-xs">{{ l.machine_id or '-' }}</td>
+          <td class="py-2 px-3 text-slate-700">{{ l.op }}</td>
+          <td class="py-2 px-3">
+            {% if l.ok %}
+              <span class="text-emerald-500">{{ icon('check', 'h-4 w-4') }}</span>
+            {% else %}
+              <span class="text-rose-500">{{ icon('x', 'h-4 w-4') }}</span>
+            {% endif %}
+          </td>
+          <td class="py-2 px-3 text-slate-500 text-xs">{{ l.detail or '' }}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<script>
+async function refreshMachines() {
+  const r = await fetch('/api/refresh', { method: 'POST' });
+  const b = await r.json().catch(() => ({}));
+  if (r.status === 200 && b.ok) location.reload();
+  else alert('刷新失败: ' + (b.msg || r.status));
+}
+
+async function doOp(machineId, op) {
+  if ((op === 'shutdown' || op === 'restart') &&
+      !confirm(`确定对该机器执行 ${op}？这是真实的远程操作`)) return;
+  const fd = new FormData(); fd.set('machine_id', machineId); fd.set('op', op);
+  const r = await fetch('/api/op', { method: 'POST', body: fd });
+  const b = await r.json().catch(() => ({}));
+  if (r.status === 200 && b.ok) {
+    alert(`${op} 已提交`);
+    setTimeout(refreshMachines, 1500);
+  } else {
+    alert(`${op} 失败: ` + (b.msg || r.status));
+  }
+}
+
+async function startKa() {
+  const r = await fetch('/api/keepalive/start', { method: 'POST' });
+  const b = await r.json().catch(() => ({}));
+  if (b.ok || b.tasks) {
+    alert('保活已启动');
+    location.reload();
+  } else {
+    alert('启动失败: ' + (b.msg || JSON.stringify(b)));
+  }
+}
+
+async function stopKa() {
+  if (!confirm('确定停止 24h 保活？停止后服务端可能在闲置时间到达后关机。')) return;
+  const r = await fetch('/api/keepalive/stop', { method: 'POST' });
+  if (r.status === 200) location.reload();
+  else alert('停止失败');
+}
+
+async function triggerKa() {
+  if (!confirm('立即跑一次桌面会话模拟（约 30 秒）？')) return;
+  const btn = event.target.closest('button');
+  const orig = btn.innerHTML;
+  btn.disabled = true;
+  btn.innerHTML = '执行中...';
+  try {
+    const r = await fetch('/api/keepalive/trigger', { method: 'POST' });
+    const b = await r.json();
+    if (r.ok && b.ok) {
+      alert(`已触发: ${b.succeeded_machines}/${b.total_machines} 台机器成功\n${b.last_status}`);
+      location.reload();
+    } else {
+      alert('触发失败: ' + (b.msg || JSON.stringify(b)));
+    }
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = orig;
+  }
+}
+
+{% if ka_status.running %}
+setTimeout(() => location.reload(), 30000);
+{% endif %}
+</script>
+{% endblock %}

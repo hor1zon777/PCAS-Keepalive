@@ -1,0 +1,234 @@
+{% extends "base.html" %}
+{% from "partials/icons.html" import icon %}
+{% block title %}选择/添加移动云账号 — PCAS Keepalive{% endblock %}
+
+{% block content %}
+<div class="max-w-3xl mx-auto space-y-6">
+
+  {# 已添加账号 #}
+  {% if accounts %}
+  <div class="bg-white border border-slate-200 rounded-2xl shadow-sm p-6">
+    <h2 class="text-lg font-medium mb-3 text-slate-900 flex items-center gap-2">
+      <span class="text-indigo-500">{{ icon('list', 'h-5 w-5') }}</span>
+      已添加的移动云账号
+    </h2>
+    <p class="text-xs text-slate-500 mb-4">点击"进入"操作；也可以下方添加新账号。</p>
+    <div class="space-y-2">
+      {% for a in accounts %}
+      <div class="flex items-center justify-between bg-slate-50 border border-slate-200 rounded-lg px-4 py-3">
+        <div>
+          <div class="font-mono text-sm text-slate-900">{{ a.mobile }}</div>
+          <div class="text-xs text-slate-500 mt-0.5">
+            {% if a.last_login_at %}最后登录: {{ a.last_login_at | timestamp }}{% endif %}
+            {% if a.last_error %}<span class="text-rose-600 ml-2 flex items-center gap-1 inline-flex">{{ icon('warning','h-3 w-3') }} {{ a.last_error[:60] }}</span>{% endif %}
+          </div>
+        </div>
+        <div class="flex gap-2">
+          <button onclick="selectAccount({{ a.id }})"
+                  class="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-md bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 transition">
+            进入
+            {{ icon('arrow-right', 'h-3.5 w-3.5') }}
+          </button>
+          <button onclick="deleteAccount({{ a.id }}, '{{ a.mobile }}')"
+                  class="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-md bg-white hover:bg-rose-50 hover:text-rose-700 text-slate-600 border border-slate-200 hover:border-rose-200 transition">
+            {{ icon('trash', 'h-3.5 w-3.5') }}
+            删除
+          </button>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+
+  {# 添加新账号 #}
+  <div class="bg-white border border-slate-200 rounded-2xl shadow-sm p-6">
+    <h2 class="text-lg font-medium mb-1 text-slate-900 flex items-center gap-2">
+      <span class="text-indigo-500">{{ icon('plus', 'h-5 w-5') }}</span>
+      {% if accounts %}添加新的{% endif %}移动云账号
+    </h2>
+    <p class="text-sm text-slate-500 mb-4">用你自己的手机号 + 密码登录中国移动云电脑</p>
+
+    <div class="flex gap-2 text-xs mb-4">
+      <button onclick="toggleMode('pwd')" id="tab-pwd"
+              class="px-3 py-1.5 rounded-md bg-indigo-100 text-indigo-700 border border-indigo-200">密码登录</button>
+      <button onclick="toggleMode('sms')" id="tab-sms"
+              class="px-3 py-1.5 rounded-md bg-white text-slate-600 border border-slate-200 hover:bg-slate-50">短信登录</button>
+    </div>
+
+    <form id="form-pwd" class="space-y-3">
+      <div>
+        <label class="text-xs font-medium text-slate-600 mb-1.5 block">手机号</label>
+        <input name="mobile" type="text" placeholder="11 位手机号" maxlength="11" required
+               class="w-full px-3 py-2 rounded-lg bg-white border border-slate-300 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 outline-none transition">
+      </div>
+      <div>
+        <label class="text-xs font-medium text-slate-600 mb-1.5 block">密码</label>
+        <input name="password" type="password" placeholder="登录密码" required autocomplete="current-password"
+               class="w-full px-3 py-2 rounded-lg bg-white border border-slate-300 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 outline-none transition">
+      </div>
+      <button type="submit"
+              class="w-full py-2.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white font-medium transition shadow-sm">
+        登录
+      </button>
+    </form>
+
+    <form id="form-sms" class="space-y-3 hidden">
+      <div>
+        <label class="text-xs font-medium text-slate-600 mb-1.5 block">手机号</label>
+        <div class="flex gap-2">
+          <input name="mobile" type="text" placeholder="11 位手机号" maxlength="11" required
+                 class="flex-1 px-3 py-2 rounded-lg bg-white border border-slate-300 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 outline-none transition">
+          <button type="button" onclick="sendSms()" id="btn-send-sms"
+                  class="px-3 py-2 rounded-lg bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 text-sm transition">
+            获取验证码
+          </button>
+        </div>
+      </div>
+      <div>
+        <label class="text-xs font-medium text-slate-600 mb-1.5 block">验证码</label>
+        <input name="code" type="text" placeholder="6 位短信码" maxlength="6" required
+               class="w-full px-3 py-2 rounded-lg bg-white border border-slate-300 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 outline-none transition">
+      </div>
+      <button type="submit"
+              class="w-full py-2.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white font-medium transition shadow-sm">
+        登录
+      </button>
+    </form>
+
+    <p id="login-msg" class="text-sm mt-4 min-h-[1.5em]"></p>
+  </div>
+</div>
+
+<script>
+function toggleMode(m) {
+  document.getElementById('form-pwd').classList.toggle('hidden', m !== 'pwd');
+  document.getElementById('form-sms').classList.toggle('hidden', m !== 'sms');
+  for (const t of ['pwd','sms']) {
+    const el = document.getElementById('tab-'+t);
+    if (t === m) {
+      el.className = 'px-3 py-1.5 rounded-md bg-indigo-100 text-indigo-700 border border-indigo-200';
+    } else {
+      el.className = 'px-3 py-1.5 rounded-md bg-white text-slate-600 border border-slate-200 hover:bg-slate-50';
+    }
+  }
+}
+
+function setMsg(t, err) {
+  const el = document.getElementById('login-msg');
+  el.innerHTML = '';
+  el.textContent = t || '';
+  el.className = 'text-sm mt-4 min-h-[1.5em] ' + (err ? 'text-rose-600' : 'text-emerald-600');
+}
+
+async function postForm(url, form) {
+  const r = await fetch(url, { method: 'POST', body: new FormData(form) });
+  return { status: r.status, body: await r.json().catch(() => ({})) };
+}
+
+document.getElementById('form-pwd').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  setMsg('登录中…');
+  const { status, body } = await postForm('/api/login', e.target);
+  if (status === 200 && body.ok) {
+    setMsg('登录成功，跳转中…');
+    location.href = '/';
+  } else if (body.challenge) {
+    setMsg('需要短信验证可信设备：请切换"短信登录"', true);
+  } else {
+    setMsg('登录失败: ' + (body.msg || status), true);
+  }
+});
+
+document.getElementById('form-sms').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  setMsg('验证中…');
+  const { status, body } = await postForm('/api/login-sms', e.target);
+  if (status === 200 && body.ok) {
+    setMsg('登录成功');
+    location.href = '/';
+  } else if (body.challenge && body.challengeType === 'chooseDeviceType') {
+    showDeviceChoice();
+  } else {
+    setMsg('登录失败: ' + (body.msg || status), true);
+  }
+});
+
+function showDeviceChoice() {
+  const wrap = document.getElementById('login-msg');
+  wrap.innerHTML = `
+    <div class="mt-2 p-3 rounded-lg bg-amber-50 border border-amber-200">
+      <div class="text-amber-900 text-sm font-medium flex items-center gap-1">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="h-4 w-4"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+        检测到新设备
+      </div>
+      <div class="text-amber-800/80 text-xs mt-1 mb-3">
+        移动云电脑要求选择此设备的身份。<b>推荐选「信任此设备」</b>，否则下次还要再过短信验证。
+      </div>
+      <div class="flex gap-2">
+        <button onclick="completeTrust(false)"
+                class="flex-1 px-3 py-2 rounded-md bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-medium">
+          信任此设备（推荐）
+        </button>
+        <button onclick="completeTrust(true)"
+                class="flex-1 px-3 py-2 rounded-md bg-white hover:bg-slate-50 border border-slate-300 text-slate-700 text-xs">
+          仅临时使用
+        </button>
+      </div>
+    </div>
+  `;
+  wrap.className = 'text-sm mt-4';
+}
+
+async function completeTrust(isTemporary) {
+  const wrap = document.getElementById('login-msg');
+  wrap.innerHTML = '<span class="text-emerald-600">设备验证中…</span>';
+  const fd = new FormData();
+  fd.set('is_temporary', isTemporary ? 'true' : 'false');
+  const r = await fetch('/api/login-sms/trust', { method: 'POST', body: fd });
+  const b = await r.json().catch(() => ({}));
+  if (r.status === 200 && b.ok) {
+    wrap.innerHTML = '<span class="text-emerald-600">登录成功，跳转中…</span>';
+    location.href = '/';
+  } else {
+    wrap.innerHTML = `<span class="text-rose-600">设备验证失败: ${b.msg || r.status}</span>`;
+  }
+}
+
+async function sendSms() {
+  const btn = document.getElementById('btn-send-sms');
+  const mobile = document.querySelector('#form-sms input[name=mobile]').value;
+  if (mobile.length !== 11) { setMsg('请填正确手机号', true); return; }
+  btn.disabled = true;
+  const fd = new FormData(); fd.set('mobile', mobile);
+  const r = await fetch('/api/sms', { method: 'POST', body: fd });
+  const b = await r.json().catch(() => ({}));
+  if (r.status === 200 && b.ok) {
+    setMsg('短信已发送');
+    let s = 60;
+    btn.textContent = s + 's';
+    const t = setInterval(() => {
+      s--; btn.textContent = s + 's';
+      if (s <= 0) { clearInterval(t); btn.disabled = false; btn.textContent = '获取验证码'; }
+    }, 1000);
+  } else {
+    setMsg('发送失败: ' + (b.msg || r.status), true);
+    btn.disabled = false;
+  }
+}
+
+async function selectAccount(id) {
+  const fd = new FormData(); fd.set('account_id', id);
+  const r = await fetch('/api/accounts/select', { method: 'POST', body: fd });
+  if (r.status === 200) location.href = '/';
+  else { const b = await r.json(); alert('切换失败: ' + (b.msg || r.status)); }
+}
+
+async function deleteAccount(id, mobile) {
+  if (!confirm(`确定删除账号 ${mobile}？\n这会停止该账号的保活并清空本地缓存（不影响真实云账号）。`)) return;
+  const r = await fetch(`/api/accounts/${id}/delete`, { method: 'POST' });
+  if (r.status === 200) location.reload();
+  else alert('删除失败');
+}
+</script>
+{% endblock %}

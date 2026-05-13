@@ -1,0 +1,164 @@
+{% extends "base.html" %}
+{% from "partials/icons.html" import icon %}
+{% block title %}总览 — PCAS Keepalive{% endblock %}
+
+{% block content %}
+
+{# 顶部 4 个汇总数字 #}
+<div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+  <div class="bg-white border border-slate-200 rounded-xl p-5">
+    <div class="text-xs text-slate-500 flex items-center gap-1.5">
+      <span class="text-indigo-500">{{ icon('user', 'h-3.5 w-3.5') }}</span>
+      移动云账号
+    </div>
+    <div class="text-2xl font-semibold mt-2 text-slate-900">{{ totals.accounts }}</div>
+  </div>
+
+  <div class="bg-white border border-slate-200 rounded-xl p-5">
+    <div class="text-xs text-slate-500 flex items-center gap-1.5">
+      <span class="text-indigo-500">{{ icon('server', 'h-3.5 w-3.5') }}</span>
+      云电脑总数
+    </div>
+    <div class="text-2xl font-semibold mt-2 text-slate-900">{{ totals.machines }}</div>
+    <div class="text-xs mt-1 flex items-center gap-1">
+      <span class="text-emerald-500">{{ icon('circle-on', 'h-2 w-2') }}</span>
+      <span class="text-slate-500">{{ totals.running }} 台运行中</span>
+    </div>
+  </div>
+
+  <div class="bg-white border border-slate-200 rounded-xl p-5">
+    <div class="text-xs text-slate-500 flex items-center gap-1.5">
+      <span class="text-indigo-500">{{ icon('heart', 'h-3.5 w-3.5') }}</span>
+      保活任务
+    </div>
+    <div class="text-2xl font-semibold mt-2 text-slate-900">{{ totals.ka_running }}</div>
+    <div class="text-xs text-slate-500 mt-1">个账号正在保活</div>
+  </div>
+
+  <div class="bg-white border border-slate-200 rounded-xl p-5">
+    <div class="text-xs text-slate-500 flex items-center gap-1.5">
+      <span class="text-indigo-500">{{ icon('pulse', 'h-3.5 w-3.5') }}</span>
+      心跳统计
+    </div>
+    <div class="text-2xl font-semibold mt-2">
+      <span class="text-emerald-600">{{ totals.ka_success }}</span>
+      <span class="text-slate-300 mx-0.5">/</span>
+      <span class="text-rose-600">{{ totals.ka_fail }}</span>
+    </div>
+    <div class="text-xs text-slate-500 mt-1">成功 / 失败 累计</div>
+  </div>
+</div>
+
+{# 保活策略提示 #}
+<div class="bg-amber-50 border border-amber-200 rounded-xl p-4 mb-6 text-sm text-amber-900 flex gap-3">
+  <span class="text-amber-600 shrink-0 mt-0.5">{{ icon('info', 'h-5 w-5') }}</span>
+  <div class="text-xs">
+    <p class="font-medium mb-1">关于保活效果的说明</p>
+    <p class="text-amber-800/90">
+      当前 4 路 REST 心跳（5/30 min 间隔）属于<b>最佳努力</b>实现。从 APK 重新逆向得到的真实保活通道是
+      <code class="px-1 py-0.5 bg-amber-100 rounded">ecloud.10086.cn:31015</code>
+      的 TCP 长连接（cem double stream），其二进制帧格式需要进一步抓包或 blutter 反编 Dart AOT
+      才能精确还原（详见 <code class="px-1 py-0.5 bg-amber-100 rounded">pcas/cem_stream.py</code>）。
+      当前实现可能不足以让所有计费类型（特别是小时包）保持开机，请在 UI 上关注实际效果并酌情判断。
+    </p>
+  </div>
+</div>
+
+{# 每账号汇总卡片 #}
+<section class="bg-white border border-slate-200 rounded-2xl shadow-sm p-6 mb-6">
+  <div class="flex items-center justify-between mb-4">
+    <h2 class="text-lg font-medium text-slate-900 flex items-center gap-2">
+      <span class="text-indigo-500">{{ icon('list', 'h-5 w-5') }}</span>
+      所有移动云账号
+    </h2>
+    <a href="/accounts"
+       class="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-md bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 transition">
+      {{ icon('plus', 'h-3.5 w-3.5') }}
+      添加 / 管理
+    </a>
+  </div>
+
+  <div class="overflow-x-auto">
+    <table class="w-full text-sm">
+      <thead class="text-xs text-slate-500 uppercase border-b border-slate-200">
+        <tr>
+          <th class="text-left py-2 px-3 font-medium">手机号</th>
+          <th class="text-left py-2 px-3 font-medium">最近登录</th>
+          <th class="text-left py-2 px-3 font-medium">机器</th>
+          <th class="text-left py-2 px-3 font-medium">保活</th>
+          <th class="text-left py-2 px-3 font-medium">操作</th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for r in rows %}
+        <tr class="border-b border-slate-100 hover:bg-slate-50/50 transition">
+          <td class="py-3 px-3 font-mono text-slate-900">{{ r.account.mobile }}</td>
+          <td class="py-3 px-3 text-slate-600 text-xs">
+            {% if r.account.last_login_at %}{{ r.account.last_login_at | timestamp }}{% else %}-{% endif %}
+          </td>
+          <td class="py-3 px-3">
+            <span class="text-slate-900">{{ r.machine_count }} 台</span>
+            {% if r.running_count > 0 %}
+            <span class="text-xs text-emerald-600 ml-2 inline-flex items-center gap-1">
+              {{ icon('circle-on', 'h-2 w-2') }} {{ r.running_count }} 运行
+            </span>
+            {% endif %}
+          </td>
+          <td class="py-3 px-3">
+            {% if r.ka_running %}
+              <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs bg-emerald-50 text-emerald-700 border border-emerald-200">
+                {{ icon('circle-on', 'h-2 w-2') }} 运行中
+              </span>
+            {% else %}
+              <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs bg-slate-50 text-slate-600 border border-slate-200">
+                {{ icon('circle-off', 'h-2 w-2') }} 已停止
+              </span>
+            {% endif %}
+          </td>
+          <td class="py-3 px-3">
+            <a href="/account/{{ r.account.id }}"
+               class="inline-flex items-center gap-1 px-3 py-1 text-xs rounded-md bg-white hover:bg-indigo-50 text-indigo-700 border border-indigo-200 transition">
+              进入控制台
+              {{ icon('arrow-right', 'h-3 w-3') }}
+            </a>
+          </td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+{# 最近日志 #}
+<section class="bg-white border border-slate-200 rounded-2xl shadow-sm p-6">
+  <h2 class="text-lg font-medium text-slate-900 mb-4 flex items-center gap-2">
+    <span class="text-indigo-500">{{ icon('list', 'h-5 w-5') }}</span>
+    最近活动（全账号）
+  </h2>
+  {% if not recent_logs %}
+    <p class="text-slate-500 text-sm">暂无活动记录</p>
+  {% endif %}
+  <div class="space-y-1">
+    {% for l in recent_logs %}
+      <div class="flex items-center gap-3 py-2 px-3 rounded-md hover:bg-slate-50 transition text-sm">
+        <span class="shrink-0">
+          {% if l.ok %}
+            <span class="text-emerald-500">{{ icon('check', 'h-4 w-4') }}</span>
+          {% else %}
+            <span class="text-rose-500">{{ icon('x', 'h-4 w-4') }}</span>
+          {% endif %}
+        </span>
+        <span class="font-mono text-xs text-slate-500 w-20">{{ l.created_at | timestamp }}</span>
+        <span class="text-slate-700 w-24 shrink-0">{{ l.op }}</span>
+        {% if l.machine_id %}<span class="font-mono text-xs text-slate-400 truncate">{{ l.machine_id }}</span>{% endif %}
+        {% if l.detail %}<span class="text-xs text-slate-500 truncate flex-1">{{ l.detail }}</span>{% endif %}
+      </div>
+    {% endfor %}
+  </div>
+</section>
+
+<script>
+// 自动刷新（30s）以获取最新心跳统计
+setTimeout(() => location.reload(), 30000);
+</script>
+{% endblock %}
