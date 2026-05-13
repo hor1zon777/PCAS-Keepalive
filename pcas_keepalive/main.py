@@ -360,8 +360,10 @@ async def api_login(
     password: str = Form(...),
     admin_id: int = Depends(require_admin),
 ):
-    if not mobile.isdigit() or len(mobile) != 11:
-        raise HTTPException(400, "手机号格式不对")
+    # 密码登录支持手机号 / 渠道账号，仅去空白
+    mobile = mobile.strip()
+    if not mobile:
+        raise HTTPException(400, "账号不能为空")
 
     existing = db.get_account_by_mobile(mobile)
     device_id = existing["device_id"] if existing else str(uuid.uuid4())
