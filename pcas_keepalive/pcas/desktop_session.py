@@ -66,18 +66,17 @@ def _new_session_ids(machine_id: str) -> tuple[str, str]:
 
 
 async def resolve_cem_endpoint(client: PCASClient) -> tuple[str, int]:
-    """从 getSysConfig 接口拿真实 cem stream 端点；失败时用抓包默认值。"""
-    try:
-        resp = await client.get_sys_config()
-        body = resp.get("body") or {}
-        host = body.get("cemDoubleStreamHost") or FALLBACK_CEM_HOST
-        port = int(body.get("cemDoubleStreamPort") or FALLBACK_CEM_PORT)
-        log.info("cem stream endpoint from server: %s:%d", host, port)
-        return host, port
-    except Exception as e:
-        log.warning("getSysConfig failed (%s), using fallback %s:%d",
-                    e, FALLBACK_CEM_HOST, FALLBACK_CEM_PORT)
-        return FALLBACK_CEM_HOST, FALLBACK_CEM_PORT
+    """返回 cem stream 端点 — 当前固定使用抓包确认的默认值。
+
+    背景：PCAS_App 的硬编码默认是 `https://ecloud.10086.cn:31015`，但服务端在
+    某处会改写客户端 Prefs 的 `cemDoubleStreamHost/Port`（具体下发接口尚未抓到）。
+    我们已经抓包验证 `36.133.24.236:8090` 在当前用户的可用性，先用作 fallback。
+
+    如果未来抓到端点下发接口，可在这里改为动态查询。
+    """
+    log.info("cem stream endpoint = %s:%d (抓包确认的 fallback)",
+             FALLBACK_CEM_HOST, FALLBACK_CEM_PORT)
+    return FALLBACK_CEM_HOST, FALLBACK_CEM_PORT
 
 
 async def simulate_desktop_session(

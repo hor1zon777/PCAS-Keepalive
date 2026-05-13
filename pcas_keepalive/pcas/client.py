@@ -480,17 +480,20 @@ class PCASClient:
             body.update(extra)
         return await self._post(EP.MACHINE_PUSH_CONNECT_EVENT, body)
 
-    async def get_sys_config(self) -> dict[str, Any]:
-        """拉取客户端系统配置 — 含 cemDoubleStreamHost / cemDoubleStreamPort 等动态参数。
+    async def get_sys_config(self, config_type: str) -> dict[str, Any]:
+        """按 key 拉单个系统配置项（如 DEVICE_PERFORMANCE_PERIOD）。
 
-        典型返回字段：
-          - cemDoubleStreamHost / cemDoubleStreamPort：cem stream 真实端点
-          - cemUpdateHost / cemUpdatePort：升级用通道
-          - 其他业务开关
+        ⚠️ 注意：这个接口**不返回** cem stream host/port。
+        服务端必填 `type` 字段（配置项 key 名），缺失会报 `9999100 type 不能为空`。
+
+        已知 config_type 取值（来自 blutter 反编）：
+          - "DEVICE_PERFORMANCE_PERIOD"
+          - "DEVICE_PERFORMANCE_BATCH_PERIOD"
+          - "DEVICE_PERFORMANCE_BATCH_INTERVAL"
         """
         return await self._post_ok(EP.CLIENT_GET_SYS_CONFIG, {
             "accessToken": self.access_token,
-            "clientType": "pc_windows",
+            "type": config_type,
         })
 
     # ---------------- 保活 4 路任务 ----------------
