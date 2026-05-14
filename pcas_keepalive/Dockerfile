@@ -28,9 +28,11 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 #--- runtime ------------------------------------------------------------------
 FROM python:3.12-slim-bookworm AS runtime
 
-# 安装运行所需系统包（curl 仅给 healthcheck 用）+ 创建非 root 用户
+# 安装运行所需系统包：
+#   curl  → healthcheck 用
+#   gosu  → entrypoint 里以 root chown 持久化目录后降权到 app 用户
 RUN apt-get update \
- && apt-get install -y --no-install-recommends curl \
+ && apt-get install -y --no-install-recommends curl gosu \
  && rm -rf /var/lib/apt/lists/* \
  && groupadd --system app \
  && useradd  --system --gid app --home-dir /app --shell /usr/sbin/nologin app
@@ -43,6 +45,11 @@ COPY --from=builder --chown=app:app /app/.venv /app/.venv
 # 拷贝源码（.dockerignore 会过滤掉本地 db / .env / .venv）
 COPY --chown=app:app . /app
 
+# entrypoint 必须可执行；同时防御性脱掉 CRLF
+# （Windows 开发者若没设 .gitattributes，git autocrlf 可能让 shebang 失败）
+RUN sed -i 's/\r$//' /app/docker-entrypoint.sh \
+ && chmod +x /app/docker-entrypoint.sh
+
 # 让容器内 python 直接走 venv 的解释器
 ENV PATH="/app/.venv/bin:${PATH}" \
     PYTHONUNBUFFERED=1 \
@@ -50,12 +57,14 @@ ENV PATH="/app/.venv/bin:${PATH}" \
     # 默认容器内绑全网卡 + 持久化目录
     HOST=0.0.0.0 \
     PORT=8765 \
-    DB_PATH=/app/data/pcas.db
+    DB_PATH=/app/data/pcas.db \
+    DATA_DIR=/app/data
 
 # 持久化目录（compose 通常会 volume 覆盖此处）
 RUN install -d -o app -g app /app/data
 
-USER app
+# 注意：USER 不切到 app —— entrypoint 需要 root 才能 chown 挂载点，
+# 然后再用 gosu 降权运行 main.py。所以容器内业务进程仍是非 root。
 
 EXPOSE 8765
 
@@ -63,5 +72,6 @@ EXPOSE 8765
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
   CMD curl --fail --silent --show-error http://127.0.0.1:${PORT}/healthz || exit 1
 
+ENTRYPOINT ["/app/docker-entrypoint.sh"]
 # 直接走 main.py（内部读取 settings.host/port 启动 uvicorn）
 CMD ["python", "main.py"]
