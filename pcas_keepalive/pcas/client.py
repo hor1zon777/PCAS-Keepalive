@@ -16,7 +16,7 @@ import json
 import logging
 import time
 import uuid
-from typing import Any
+from typing import Any, Awaitable, Callable
 
 import httpx
 
@@ -100,6 +100,39 @@ def is_running(machines: list[dict]) -> bool:
         if any(k in s for k in ("running", "active", "connected", "on", "available")):
             return True
     return False
+
+
+async def call_with_auto_refresh(
+    client: "PCASClient",
+    op: "Callable[[], Awaitable[Any]]",
+    *,
+    on_refresh: "Callable[[], Awaitable[None] | None] | None" = None,
+) -> Any:
+    """跑一次 op；如果是 token 失效错误，自动 refresh 一次后再跑一次。
+
+    用于把"业务调用 → PCASError → is_auth_failure → refresh_token → 重试"
+    的几处复制粘贴收敛到一处。注意：
+
+    - 只重试一次。第二次仍失败的异常向上抛。
+    - 非 auth 失败的 PCASError 不重试，直接 raise（语义保持原样）。
+    - on_refresh 在 refresh 成功后、retry 前调用，用于把新 token 持久化到 db。
+      可以同步或异步。
+
+    更复杂的"ticket 失败→密码降级"语义不在本 helper 范围（见
+    keepalive._refresh_account_token）。
+    """
+    try:
+        return await op()
+    except PCASError as e:
+        if not PCASClient.is_auth_failure(e):
+            raise
+    # 走到这里说明捕获了一次 auth failure → refresh + retry
+    await client.refresh_token()
+    if on_refresh is not None:
+        rv = on_refresh()
+        if rv is not None and hasattr(rv, "__await__"):
+            await rv
+    return await op()
 
 
 class PCASClient:

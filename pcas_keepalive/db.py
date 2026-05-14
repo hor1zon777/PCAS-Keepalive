@@ -88,6 +88,11 @@ def init(db_path: str | Path) -> None:
     global _DB_PATH
     _DB_PATH = Path(db_path)
     _DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+    # journal_mode=WAL 是持久设置（写入文件头），只需 init 时设一次。
+    # WAL 模式下读写不互相阻塞，单写多读，比默认 DELETE 模式锁竞争小很多。
+    with sqlite3.connect(_DB_PATH) as c:
+        c.execute("PRAGMA journal_mode=WAL")
+        c.execute("PRAGMA synchronous=NORMAL")
     with conn() as c:
         c.executescript(DDL)
 
@@ -97,6 +102,8 @@ def conn():
     assert _DB_PATH is not None, "db.init() must be called first"
     c = sqlite3.connect(_DB_PATH)
     c.row_factory = sqlite3.Row
+    # foreign_keys 是 per-connection 开关，必须每次 connect 后启用。
+    c.execute("PRAGMA foreign_keys=ON")
     try:
         yield c
         c.commit()
@@ -264,6 +271,7 @@ def delete_account(account_id: int) -> None:
     with conn() as c:
         c.execute("DELETE FROM keepalive_tasks WHERE account_id=?", (account_id,))
         c.execute("DELETE FROM machines WHERE account_id=?", (account_id,))
+        c.execute("DELETE FROM operation_logs WHERE account_id=?", (account_id,))
         c.execute("DELETE FROM accounts WHERE id=?", (account_id,))
 
 

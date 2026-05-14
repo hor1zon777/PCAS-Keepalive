@@ -25,6 +25,7 @@ import db
 from config import get_settings
 from keepalive import get_scheduler
 from pcas import OP_TYPES, PCASClient, PCASError
+from pcas.client import call_with_auto_refresh
 from pcas.crypto import aes_open, aes_seal
 
 logging.basicConfig(
@@ -700,31 +701,21 @@ async def api_op(
     client = _make_client_for(acct)
     try:
         try:
-            data = await client.operate_machine(
-                connect_id, op,
-                machine_name=machine_name,
-                resource_pool_uid=resource_pool_uid,
+            data = await call_with_auto_refresh(
+                client,
+                lambda: client.operate_machine(
+                    connect_id, op,
+                    machine_name=machine_name,
+                    resource_pool_uid=resource_pool_uid,
+                ),
+                on_refresh=lambda: db.update_account_session(
+                    aid, client.access_token, client.access_ticket,
+                    acct.get("login_uid"), None,
+                ),
             )
         except PCASError as e:
-            # token 失效时尝试一次刷新
-            if PCASClient.is_auth_failure(e):
-                try:
-                    await client.refresh_token()
-                    db.update_account_session(
-                        aid, client.access_token, client.access_ticket,
-                        acct.get("login_uid"), None,
-                    )
-                    data = await client.operate_machine(
-                        connect_id, op,
-                        machine_name=machine_name,
-                        resource_pool_uid=resource_pool_uid,
-                    )
-                except PCASError as e2:
-                    db.add_log(aid, machine_id, f"op:{op}", False, e2.msg)
-                    return JSONResponse({"ok": False, "msg": e2.msg}, status_code=400)
-            else:
-                db.add_log(aid, machine_id, f"op:{op}", False, e.msg)
-                return JSONResponse({"ok": False, "msg": e.msg}, status_code=400)
+            db.add_log(aid, machine_id, f"op:{op}", False, e.msg)
+            return JSONResponse({"ok": False, "msg": e.msg}, status_code=400)
         db.add_log(aid, machine_id, f"op:{op}", True, "")
         return {"ok": True, "data": data}
     finally:

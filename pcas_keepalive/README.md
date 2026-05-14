@@ -313,7 +313,7 @@ pcas_keepalive/
 │   ├── base.html
 │   ├── login.html
 │   ├── dashboard.html
-│   └── partials/machine_card.html
+│   └── partials/icons.html
 └── static/style.css
 ```
 

@@ -188,8 +188,10 @@ class KeepAliveService:
         password = aes_open(acct["password_blob"], settings.local_key_hex)
         client = self._make_client(rt)
         # 把 DB 里现有 ticket / token 灌进来，给 refresh_token 用
+        # ⚠️ db 列名是 cem_token（历史叫法），不是 access_token；
+        # 与 main.py _make_client_for 保持一致。
         client.access_ticket = acct.get("access_ticket") or ""
-        client.access_token = acct.get("access_token") or ""
+        client.access_token = acct.get("cem_token") or ""
         try:
             result: dict | None = None
 
@@ -290,6 +292,16 @@ class KeepAliveService:
         except asyncio.CancelledError:
             log.debug("daily loop cancelled for account %s", rt.account_name)
             raise
+        except Exception as e:
+            # silent failure 守卫：循环本身意外退出时，UI 必须能看到。
+            # 否则 rt.running=True、task.done()=True，status_for 仍然回 running，
+            # 用户以为机器在保活，实际从第 1 分钟就已经停了。
+            log.exception("[%s] daily loop crashed: %s", rt.account_name, e)
+            db.add_log(rt.account_id, None, "keepalive_crashed", False, repr(e)[:200])
+            rt.running = False
+            rt.stats.last_status = "CRASHED"
+            rt.stats.last_error = repr(e)[:200]
+            rt.stats.last_time = time.strftime("%Y-%m-%d %H:%M:%S")
 
     async def _execute_session_round(self, rt: AccountRuntime) -> None:
         """对账号下所有 running 机器逐个跑一次完整桌面会话。"""

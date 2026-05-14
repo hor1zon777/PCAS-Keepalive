@@ -50,16 +50,18 @@
 </div>
 
 {# 保活策略提示 #}
-<div class="bg-amber-50 border border-amber-200 rounded-xl p-4 mb-6 text-sm text-amber-900 flex gap-3">
-  <span class="text-amber-600 shrink-0 mt-0.5">{{ icon('info', 'h-5 w-5') }}</span>
+<div class="bg-emerald-50 border border-emerald-200 rounded-xl p-4 mb-6 text-sm text-emerald-900 flex gap-3">
+  <span class="text-emerald-600 shrink-0 mt-0.5">{{ icon('info', 'h-5 w-5') }}</span>
   <div class="text-xs">
-    <p class="font-medium mb-1">关于保活效果的说明</p>
-    <p class="text-amber-800/90">
-      当前 4 路 REST 心跳（5/30 min 间隔）属于<b>最佳努力</b>实现。从 APK 重新逆向得到的真实保活通道是
-      <code class="px-1 py-0.5 bg-amber-100 rounded">ecloud.10086.cn:31015</code>
-      的 TCP 长连接（cem double stream），其二进制帧格式需要进一步抓包或 blutter 反编 Dart AOT
-      才能精确还原（详见 <code class="px-1 py-0.5 bg-amber-100 rounded">pcas/cem_stream.py</code>）。
-      当前实现可能不足以让所有计费类型（特别是小时包）保持开机，请在 UI 上关注实际效果并酌情判断。
+    <p class="font-medium mb-1">关于保活策略</p>
+    <p class="text-emerald-800/90">
+      已切换到 <b>daily cem stream 桌面会话模拟</b>：每 23 小时执行一次完整流程
+      （<code class="px-1 py-0.5 bg-emerald-100 rounded">recordDeviceInfo → cem 握手 → 30s 心跳 → 关闭</code>）。
+      cem 端点 <code class="px-1 py-0.5 bg-emerald-100 rounded">36.133.24.236:8090</code>
+      已通过 <code class="px-1 py-0.5 bg-emerald-100 rounded">ydy.pcapng</code> 字节级闭环；
+      协议细节见 <code class="px-1 py-0.5 bg-emerald-100 rounded">pcas/cem_stream.py</code> 与
+      <code class="px-1 py-0.5 bg-emerald-100 rounded">docs/CEM_STREAM_REVERSE.md</code>。
+      保活效果最终需要观察 24h 后机器是否仍在线，请按实际表现判断。
     </p>
   </div>
 </div>
