@@ -10,11 +10,12 @@
 #--- builder ------------------------------------------------------------------
 FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim AS builder
 
-# uv 调优
+# uv 调优 + 国内镜像（中科大 USTC）
 ENV UV_COMPILE_BYTECODE=1 \
     UV_LINK_MODE=copy \
     UV_PYTHON_DOWNLOADS=never \
-    UV_PROJECT_ENVIRONMENT=/app/.venv
+    UV_PROJECT_ENVIRONMENT=/app/.venv \
+    UV_DEFAULT_INDEX=https://pypi.mirrors.ustc.edu.cn/simple/
 
 WORKDIR /app
 
@@ -31,7 +32,14 @@ FROM python:3.12-slim-bookworm AS runtime
 # 安装运行所需系统包：
 #   curl  → healthcheck 用
 #   gosu  → entrypoint 里以 root chown 持久化目录后降权到 app 用户
-RUN apt-get update \
+# Debian apt 源换成中科大 USTC 镜像（国内 build 速度从分钟级降到秒级）。
+# bookworm-slim 用的是 deb822 格式 /etc/apt/sources.list.d/debian.sources，
+# 加 [ -f ... ] 防御未来 Debian 改文件名 / 切回 sources.list 也能跑通。
+RUN if [ -f /etc/apt/sources.list.d/debian.sources ]; then \
+        sed -i 's|deb.debian.org|mirrors.ustc.edu.cn|g; s|security.debian.org|mirrors.ustc.edu.cn|g' \
+            /etc/apt/sources.list.d/debian.sources; \
+    fi \
+ && apt-get update \
  && apt-get install -y --no-install-recommends curl gosu \
  && rm -rf /var/lib/apt/lists/* \
  && groupadd --system app \
