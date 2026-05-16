@@ -1,21 +1,34 @@
-"""24h 主动保活调度器 — 桌面会话模拟版。
+"""保活调度器 — 双模式：forever (持续在线) / daily (23h 短打卡)。
 
-## 设计
+## forever 模式（默认）
+
+参考 Go 版 `cloud-computer-keepalive` 的 `--forever` 思路：每台 running 机器
+开一条 `MachineRunner`，并发维持：
+
+1. **cem stream 长连接**：5s 一次心跳（与 PCAS_App 抓包一致）
+2. **REST 辅助心跳**：25s 一次 /session/updateSessionStatus + 5min 一次
+   /machine/performance/batch + /user/getDesktopStatus + 30min 一次
+   /device/performance/batch
+3. **主动 token refresh**：6h 一次（防 ticket 超时）
+4. **断线指数退避重连**：1s → 2s → 4s → ... → 60s 上限
+
+`KeepAliveService` 每 5min reconcile 一次机器列表：新增 running 机器开 runner，
+消失机器停 runner。
+
+## daily 模式（原策略，账号级可选）
 
 > 已知（用户告知 + 抓包验证）：**24h 内连接一次机器（进入桌面）即可保活**。
 > 服务端按"用户活跃度"判断是否空闲关机；只要每 24 小时内触发一次完整的
 > 桌面连接动作（machineConnect + cem stream 握手），机器就不会被关机。
 
-策略变更（vs 旧版 4 路 REST 心跳）：
-- ✗ 移除原 4 路 REST 心跳（5min/30min 间隔，效果未知）
-- ✓ 单一任务：每 23 小时跑一次 `simulate_desktop_session`
-- ✓ 每次循环对账号下**所有 running 机器**逐个模拟桌面连接（30s 心跳）
-- ✓ 失败时 token 自动刷新 + 重试
+- 每 23 小时跑一次 `simulate_desktop_session`（30s cem stream 短连接）
+- 失败时 token 自动刷新 + 重试
 
 ## 调度
 
-| 任务                         间隔        initialDelay
-| daily_desktop_session       23h         15s (run_on_start=True)
+| 模式      | 任务名                  间隔         initialDelay
+| forever  | forever_cem_session     常驻         15s
+| daily    | daily_desktop_session   23h          15s (run_on_start=True)
 """
 from __future__ import annotations
 
@@ -23,13 +36,14 @@ import asyncio
 import logging
 import time
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Awaitable, Callable
 
 import db
 from config import get_settings
 from pcas.client import PCASClient, PCASError, is_running
 from pcas.crypto import aes_open, get_device_info
 from pcas.desktop_session import (
+    cem_stream_session,
     resolve_cem_endpoint,
     simulate_desktop_session,
     DesktopSessionResult,
@@ -44,12 +58,14 @@ DAILY_INTERVAL_SECONDS = 23 * 3600
 # 第一次启动延迟 — 给登录留出时间
 INITIAL_DELAY_SECONDS = 15
 
-# 单台机器 cem stream 维持时长（秒）
+# 单台机器 cem stream 维持时长（秒）— 仅 daily 模式使用
 CEM_KEEP_SECONDS = 30
 
 # 服务端"机器在线"状态关键词集合 — 与 pcas.client.is_running 保持一致。
 # 注意：开机后服务端返回的是 'available'（"可连接"），不是 'running'。
 RUNNING_STATUS_KEYWORDS = ("running", "active", "connected", "on", "available")
+
+VALID_MODES = ("forever", "daily")
 
 
 def _is_machine_running(m: dict) -> bool:
@@ -71,6 +87,22 @@ class TaskStats:
 
 
 @dataclass
+class MachineRunnerStats:
+    """每台机器 runner 的运行时统计（snapshot 给 UI）。"""
+
+    state: str = "starting"           # starting | connected | reconnecting | paused | stopped
+    handshakes: int = 0
+    cem_heartbeats: int = 0
+    rest_heartbeats: int = 0
+    server_pushes: int = 0
+    consecutive_failures: int = 0
+    current_backoff_sec: float = 0.0
+    connected_at: float = 0.0
+    last_disconnect_at: float = 0.0
+    last_error: str = ""
+
+
+@dataclass
 class AccountRuntime:
     account_id: int
     account_name: str
@@ -85,10 +117,375 @@ class AccountRuntime:
     stats: TaskStats = field(default_factory=TaskStats)
     tasks_started_at: float = 0.0
     _runner_task: asyncio.Task | None = None
+    # forever 模式专属
+    mode: str = "forever"
+    runners: dict[str, "MachineRunner"] = field(default_factory=dict)
+    machine_refresh_task: asyncio.Task | None = None
+    # token 失效并发刷新保护
+    _token_refresh_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+
+
+class MachineRunner:
+    """单台机器的 forever 模式运行器。
+
+    生命周期由 supervisor 协程驱动：建连接 → 三 loop 并发 → 任一退出 → 重连。
+    断开时指数退避（1s/2s/.../60s 上限）；token 失效时通过 token_refresher
+    刷新（账号级单刷，所有 runner 共享）。
+    """
+
+    def __init__(
+        self,
+        rt: "AccountRuntime",
+        machine: dict[str, Any],
+        cem_host: str,
+        cem_port: int,
+        token_provider: Callable[[], tuple[str, str]],
+        token_refresher: Callable[[], Awaitable[bool]],
+    ) -> None:
+        self.rt = rt
+        self.machine = machine
+        self.machine_id = (
+            machine.get("machineId") or machine.get("instanceId") or ""
+        )
+        self.machine_name = machine.get("machineName", "") or self.machine_id
+        self.cem_host = cem_host
+        self.cem_port = cem_port
+        self._token_provider = token_provider
+        self._token_refresher = token_refresher
+        self.stats = MachineRunnerStats()
+        self._task: asyncio.Task | None = None
+        self._stopping = asyncio.Event()
+        self._force_reconnect = asyncio.Event()
+
+    # ---------- 生命周期 ----------
+
+    def start(self) -> None:
+        if self._task and not self._task.done():
+            return
+        self._stopping.clear()
+        self._task = asyncio.create_task(
+            self._supervisor(),
+            name=f"runner-{self.rt.account_id}-{self.machine_id}",
+        )
+
+    async def stop(self) -> None:
+        self._stopping.set()
+        if self._task and not self._task.done():
+            self._task.cancel()
+            try:
+                await self._task
+            except (asyncio.CancelledError, Exception):
+                pass
+        self.stats.state = "stopped"
+
+    def trigger_reconnect(self) -> None:
+        """请求 runner 立刻断开并重连（用于手动 trigger）。"""
+        self._force_reconnect.set()
+
+    def snapshot(self) -> dict[str, Any]:
+        s = self.stats
+        return {
+            "machine_id": self.machine_id,
+            "machine_name": self.machine_name,
+            "state": s.state,
+            "handshakes": s.handshakes,
+            "cem_heartbeats": s.cem_heartbeats,
+            "rest_heartbeats": s.rest_heartbeats,
+            "server_pushes": s.server_pushes,
+            "consecutive_failures": s.consecutive_failures,
+            "current_backoff_sec": s.current_backoff_sec,
+            "connected_at": s.connected_at,
+            "last_disconnect_at": s.last_disconnect_at,
+            "last_error": s.last_error,
+        }
+
+    # ---------- 核心 supervisor ----------
+
+    async def _supervisor(self) -> None:
+        settings = get_settings()
+        backoff = settings.forever_reconnect_initial_backoff_sec
+        max_backoff = settings.forever_reconnect_max_backoff_sec
+
+        while not self._stopping.is_set():
+            self.stats.state = "starting"
+            self.stats.current_backoff_sec = 0.0
+            try:
+                await self._run_one_session()
+                # 正常返回 == 主动 stop 或 trigger reconnect
+                if self._force_reconnect.is_set():
+                    self._force_reconnect.clear()
+                    backoff = settings.forever_reconnect_initial_backoff_sec
+                    continue
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:
+                self.stats.consecutive_failures += 1
+                self.stats.last_error = repr(e)[:200]
+                self.stats.last_disconnect_at = time.time()
+                log.warning(
+                    "[%s/%s] runner session failed: %s",
+                    self.rt.account_name, self.machine_name, e,
+                )
+                db.add_log(
+                    self.rt.account_id, self.machine_id,
+                    "forever_session_error", False, repr(e)[:200],
+                )
+
+            if self._stopping.is_set():
+                break
+
+            self.stats.state = "reconnecting"
+            self.stats.current_backoff_sec = backoff
+            try:
+                await asyncio.wait_for(
+                    self._stopping.wait(), timeout=backoff,
+                )
+                break  # stopping during backoff → 退出
+            except asyncio.TimeoutError:
+                pass
+            backoff = min(backoff * 2, max_backoff)
+
+        self.stats.state = "stopped"
+
+    async def _run_one_session(self) -> None:
+        """跑一次完整会话：握手 → 三 loop 并发 → 任一退出 → cleanup。"""
+        settings = get_settings()
+        access_token, access_ticket = self._token_provider()
+        if not access_ticket or not access_token:
+            raise RuntimeError("missing access_ticket/access_token")
+
+        device_uid = str(
+            get_device_info(self.rt.account_name).get("deviceUid", "")
+        ).upper()
+
+        client = PCASClient(
+            base_url=settings.pcas_base_url,
+            timeout=settings.http_timeout,
+            debug_dump=settings.debug_dump_payload,
+        )
+        client.account_name = self.rt.account_name
+        client.access_token = access_token
+        client.access_ticket = access_ticket
+
+        async def on_disconnect(exc: Exception | None) -> None:
+            self.stats.last_disconnect_at = time.time()
+            if exc is not None:
+                self.stats.last_error = repr(exc)[:200]
+
+        async def on_push(cmd_id: int, data: dict) -> None:
+            if cmd_id == 2:
+                return
+            self.stats.server_pushes += 1
+            log.info(
+                "[%s/%s] server push cmd=%d data=%s",
+                self.rt.account_name, self.machine_name, cmd_id, str(data)[:200],
+            )
+
+        try:
+            async with cem_stream_session(
+                client=client,
+                machine=self.machine,
+                device_uid=device_uid,
+                cem_host=self.cem_host,
+                cem_port=self.cem_port,
+                heartbeat_interval=settings.forever_cem_heartbeat_sec,
+                on_push=on_push,
+                on_disconnect=on_disconnect,
+            ) as cem:
+                self.stats.handshakes += 1
+                self.stats.state = "connected"
+                self.stats.connected_at = time.time()
+                self.stats.consecutive_failures = 0
+                self.stats.last_error = ""
+                db.add_log(
+                    self.rt.account_id, self.machine_id,
+                    "forever_session_open", True,
+                    f"cem={self.cem_host}:{self.cem_port}",
+                )
+
+                cem_task = asyncio.create_task(cem.run(), name="cem_run")
+                rest_task = asyncio.create_task(
+                    self._rest_heartbeat_loop(client),
+                    name="rest_hb",
+                )
+                refresh_task = asyncio.create_task(
+                    self._token_refresh_loop(),
+                    name="token_refresh",
+                )
+                force_task = asyncio.create_task(
+                    self._force_reconnect.wait(),
+                    name="force_reconnect",
+                )
+                stop_task = asyncio.create_task(
+                    self._stopping.wait(),
+                    name="stop_signal",
+                )
+                all_tasks = [cem_task, rest_task, refresh_task, force_task, stop_task]
+
+                try:
+                    done, _ = await asyncio.wait(
+                        all_tasks, return_when=asyncio.FIRST_COMPLETED,
+                    )
+                finally:
+                    for t in all_tasks:
+                        if not t.done():
+                            t.cancel()
+                    for t in (cem_task, rest_task, refresh_task):
+                        try:
+                            await t
+                        except (asyncio.CancelledError, Exception):
+                            pass
+
+                # 把 cem stream 的 counters 转到 stats
+                self.stats.cem_heartbeats = cem.heartbeats_sent
+                self.stats.server_pushes = max(
+                    self.stats.server_pushes, cem.pushes_received,
+                )
+
+                # 判断退出原因
+                for t in done:
+                    if t in (force_task, stop_task):
+                        return
+                    if t.exception():
+                        raise t.exception()
+                if cem_task in done or rest_task in done:
+                    raise RuntimeError("session task ended unexpectedly")
+        finally:
+            await client.close()
+
+    # ---------- REST 辅助心跳 ----------
+
+    async def _rest_heartbeat_loop(self, client: PCASClient) -> None:
+        """每 25 秒并行调一组 REST 保活接口（最佳努力，失败仅记日志）。
+
+        参考 Go 项目 keepaliveLoop：在 cem stream 长连接外，并行刷一组
+        服务端记的"近期活跃"信号。token 失效时触发账号级 refresh。
+        """
+        settings = get_settings()
+        machine_id = self.machine_id
+        instance_id = self.machine.get("instanceId") or machine_id
+
+        last_machine_perf = 0.0
+        last_device_perf = 0.0
+        last_desktop_status = 0.0
+        login_uid = self.rt.access_ticket[:32] if self.rt.access_ticket else ""
+
+        # 启动后等一会，避免握手刚成功就并发刷 REST
+        try:
+            await asyncio.wait_for(
+                self._stopping.wait(),
+                timeout=settings.forever_rest_heartbeat_sec,
+            )
+            return
+        except asyncio.TimeoutError:
+            pass
+
+        while not self._stopping.is_set():
+            try:
+                tok, tic = self._token_provider()
+                client.access_token = tok
+                client.access_ticket = tic
+
+                now = time.time()
+                pending: list[Awaitable[Any]] = []
+
+                conn_list = [{
+                    "connectId": machine_id,
+                    "connectStatus": True,
+                    "machineId": machine_id,
+                    "companyCode": self.machine.get("companyCode", "ZTE"),
+                }]
+                pending.append(client.task_session_heartbeat(
+                    login_uid=login_uid,
+                    connect_list=conn_list,
+                    login_status="0",
+                ))
+
+                if now - last_machine_perf >= settings.forever_machine_perf_interval_sec:
+                    pending.append(client.task_machine_performance_batch(machine_id))
+                    last_machine_perf = now
+                if now - last_desktop_status >= settings.forever_desktop_status_interval_sec:
+                    pending.append(client.task_get_desktop_status([instance_id]))
+                    last_desktop_status = now
+                if now - last_device_perf >= settings.forever_device_perf_interval_sec:
+                    pending.append(client.task_device_performance())
+                    last_device_perf = now
+
+                results = await asyncio.gather(*pending, return_exceptions=True)
+                ok = sum(1 for r in results if not isinstance(r, Exception))
+                if ok > 0:
+                    self.stats.rest_heartbeats += 1
+
+                # auth failure → 账号级 refresh
+                auth_failed = any(
+                    isinstance(r, PCASError) and PCASClient.is_auth_failure(r)
+                    for r in results
+                )
+                if auth_failed:
+                    log.info(
+                        "[%s/%s] REST heartbeat hit auth failure, refreshing token",
+                        self.rt.account_name, self.machine_name,
+                    )
+                    refreshed = await self._token_refresher()
+                    if not refreshed:
+                        raise RuntimeError("REST token refresh failed")
+
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:
+                log.warning(
+                    "[%s/%s] REST heartbeat error: %s",
+                    self.rt.account_name, self.machine_name, e,
+                )
+                if isinstance(e, PCASError) and PCASClient.is_auth_failure(e):
+                    raise
+
+            try:
+                await asyncio.wait_for(
+                    self._stopping.wait(),
+                    timeout=settings.forever_rest_heartbeat_sec,
+                )
+                return
+            except asyncio.TimeoutError:
+                continue
+
+    # ---------- 主动 token 刷新（6h 一次防 ticket 过期） ----------
+
+    async def _token_refresh_loop(self) -> None:
+        settings = get_settings()
+        while not self._stopping.is_set():
+            try:
+                await asyncio.wait_for(
+                    self._stopping.wait(),
+                    timeout=settings.forever_token_refresh_interval_sec,
+                )
+                return
+            except asyncio.TimeoutError:
+                pass
+
+            try:
+                refreshed = await self._token_refresher()
+                if refreshed:
+                    log.info(
+                        "[%s/%s] proactive token refresh ok",
+                        self.rt.account_name, self.machine_name,
+                    )
+                    self._force_reconnect.set()
+                    return
+                else:
+                    log.warning(
+                        "[%s/%s] proactive token refresh returned False",
+                        self.rt.account_name, self.machine_name,
+                    )
+            except Exception as e:
+                log.warning(
+                    "[%s/%s] proactive token refresh error: %s",
+                    self.rt.account_name, self.machine_name, e,
+                )
 
 
 class KeepAliveService:
-    """全局调度器 — 每账号一个 daily 桌面会话循环。"""
+    """全局调度器 — 每账号一个保活 runtime（forever 或 daily）。"""
 
     def __init__(self) -> None:
         self._runtimes: dict[int, AccountRuntime] = {}
@@ -97,10 +494,11 @@ class KeepAliveService:
     # ---------- 生命周期 ----------
 
     async def start(self) -> None:
-        log.info("keepalive service started (daily desktop session strategy)")
+        log.info("keepalive service started (forever + daily 双模式)")
         for t in db.list_active_tasks():
             try:
-                await self._begin_account(t["account_id"])
+                mode = t.get("mode") or db.get_account_default_mode(t["account_id"]) or "forever"
+                await self._begin_account(t["account_id"], mode=mode)
             except Exception as e:
                 log.warning("account %s 重启保活失败: %s", t["account_id"], e)
 
@@ -111,11 +509,32 @@ class KeepAliveService:
 
     # ---------- 启停 ----------
 
-    async def start_for(self, account_id: int) -> dict[str, Any]:
+    async def start_for(
+        self, account_id: int, mode: str | None = None,
+    ) -> dict[str, Any]:
         async with self._lock:
-            db.upsert_task(account_id, "_all_", True, 5, 1440)
-            await self._begin_account(account_id)
-        return {"ok": True, "task": "daily_desktop_session"}
+            if mode is None:
+                mode = db.get_account_default_mode(account_id)
+            if mode not in VALID_MODES:
+                raise ValueError(f"invalid mode {mode!r}, expected {VALID_MODES}")
+            db.set_account_default_mode(account_id, mode)
+            db.upsert_task(account_id, "_all_", True, 5, 1440, mode=mode)
+            await self._begin_account(account_id, mode=mode)
+        task_name = "forever_cem_session" if mode == "forever" else "daily_desktop_session"
+        return {"ok": True, "task": task_name, "mode": mode}
+
+    async def set_mode(self, account_id: int, mode: str) -> dict[str, Any]:
+        """切换账号的保活模式 — 先停当前，再以新模式起。"""
+        if mode not in VALID_MODES:
+            raise ValueError(f"invalid mode {mode!r}, expected {VALID_MODES}")
+        async with self._lock:
+            db.set_account_default_mode(account_id, mode)
+            db.upsert_task(account_id, "_all_", True, 5, 1440, mode=mode)
+            rt = self._runtimes.get(account_id)
+            if rt:
+                await self._stop_account(rt)
+            await self._begin_account(account_id, mode=mode)
+        return {"ok": True, "mode": mode}
 
     async def stop_for(self, account_id: int) -> dict[str, Any]:
         async with self._lock:
@@ -128,15 +547,17 @@ class KeepAliveService:
     async def status_for(self, account_id: int) -> dict[str, Any]:
         rt = self._runtimes.get(account_id)
         if not rt:
-            return {"running": False}
+            return {"running": False, "mode": db.get_account_default_mode(account_id)}
         s = rt.stats
+        task_id = "forever_cem_session" if rt.mode == "forever" else "daily_desktop_session"
         return {
             "running": rt.running,
+            "mode": rt.mode,
             "started_at": rt.tasks_started_at,
             "machines": rt.machines,
             "cem_endpoint": f"{rt.cem_host}:{rt.cem_port}" if rt.cem_host else "",
             "tasks": {
-                "daily_desktop_session": {
+                task_id: {
                     "total": s.total,
                     "success": s.success,
                     "fail": s.fail,
@@ -148,17 +569,31 @@ class KeepAliveService:
                     "last_succeeded_machines": s.last_succeeded_machines,
                 },
             },
+            "runners": [r.snapshot() for r in rt.runners.values()],
         }
 
     async def trigger_now(self, account_id: int) -> dict[str, Any]:
-        """手动触发一次桌面会话（用于 UI 测试按钮）。"""
+        """手动触发一次桌面会话：daily 模式跑一次短打卡；forever 模式强制所有 runner 重连。"""
         rt = self._runtimes.get(account_id)
         if not rt or not rt.running:
             raise RuntimeError(f"account {account_id} 保活未启动")
+        if rt.mode == "forever":
+            count = 0
+            for r in rt.runners.values():
+                r.trigger_reconnect()
+                count += 1
+            return {
+                "ok": True,
+                "mode": "forever",
+                "triggered_runners": count,
+                "last_status": "RECONNECTING",
+            }
+        # daily 模式：原有逻辑
         await self._execute_session_round(rt)
         s = rt.stats
         return {
             "ok": True,
+            "mode": "daily",
             "last_time": s.last_time,
             "last_status": s.last_status,
             "succeeded_machines": s.last_succeeded_machines,
@@ -167,8 +602,10 @@ class KeepAliveService:
 
     # ---------- 内部 ----------
 
-    async def _begin_account(self, account_id: int) -> None:
-        """登录账号 → 拉机器 + cem 端点 → 启动 daily 调度协程。"""
+    async def _begin_account(self, account_id: int, mode: str = "forever") -> None:
+        """登录账号 → 拉机器 + cem 端点 → 按 mode 启动调度。"""
+        if mode not in VALID_MODES:
+            raise ValueError(f"invalid mode {mode!r}, expected {VALID_MODES}")
         acct = db.get_account(account_id)
         if not acct:
             raise RuntimeError(f"account {account_id} 不存在")
@@ -181,6 +618,7 @@ class KeepAliveService:
             account_id=account_id,
             account_name=acct["mobile"],
             mobile=acct["mobile"],
+            mode=mode,
         )
 
         # 1. 登录：优先用现有 accessTicket 续期；失败回退到密码登录
@@ -245,18 +683,43 @@ class KeepAliveService:
             db.add_log(account_id, None, "keepalive_start",
                        False, "无运行中机器，保活仍启动等待开机")
 
-        # 3. 启动 daily 协程
+        # 3. 按 mode 启动调度
         rt.tasks_started_at = time.time()
         rt.running = True
-        rt._runner_task = asyncio.create_task(self._run_daily_loop(rt))
+        if rt.mode == "forever":
+            rt._runner_task = asyncio.create_task(
+                self._run_forever_top(rt),
+                name=f"forever-top-{account_id}",
+            )
+            extra = f"forever runners={len([m for m in rt.machines if _is_machine_running(m)])}"
+        else:
+            rt._runner_task = asyncio.create_task(
+                self._run_daily_loop(rt),
+                name=f"daily-loop-{account_id}",
+            )
+            extra = f"daily interval={DAILY_INTERVAL_SECONDS}s"
 
         self._runtimes[account_id] = rt
         db.add_log(account_id, None, "keepalive_start", True,
-                   f"{len(rt.machines)} machines, cem={rt.cem_host}:{rt.cem_port}, "
-                   f"interval={DAILY_INTERVAL_SECONDS}s")
+                   f"mode={rt.mode}, {len(rt.machines)} machines, "
+                   f"cem={rt.cem_host}:{rt.cem_port}, {extra}")
 
     async def _stop_account(self, rt: AccountRuntime) -> None:
         rt.running = False
+        # 先停所有 forever runner（避免主任务 cancel 时仍在尝试访问 token）
+        if rt.runners:
+            await asyncio.gather(
+                *(r.stop() for r in rt.runners.values()),
+                return_exceptions=True,
+            )
+            rt.runners.clear()
+        if rt.machine_refresh_task:
+            rt.machine_refresh_task.cancel()
+            try:
+                await rt.machine_refresh_task
+            except (asyncio.CancelledError, Exception):
+                pass
+            rt.machine_refresh_task = None
         if rt._runner_task:
             rt._runner_task.cancel()
             try:
@@ -279,6 +742,107 @@ class KeepAliveService:
             c.access_token = rt.access_token
             c.access_ticket = rt.access_ticket
         return c
+
+    async def _run_forever_top(self, rt: AccountRuntime) -> None:
+        """forever 顶层任务：启动所有 running 机器的 runner，定时 reconcile。"""
+        try:
+            await asyncio.sleep(INITIAL_DELAY_SECONDS)
+            self._reconcile_machine_runners(rt)
+            settings = get_settings()
+            while rt.running:
+                try:
+                    await asyncio.sleep(settings.forever_machine_refresh_interval_sec)
+                except asyncio.CancelledError:
+                    raise
+                if not rt.running:
+                    break
+                try:
+                    await self._refresh_machines_with_retry(rt)
+                except Exception as e:
+                    log.warning("[%s] machine list refresh failed: %s",
+                                rt.account_name, e)
+                    continue
+                self._reconcile_machine_runners(rt)
+        except asyncio.CancelledError:
+            log.debug("forever top cancelled for account %s", rt.account_name)
+            raise
+        except Exception as e:
+            log.exception("[%s] forever top crashed: %s", rt.account_name, e)
+            db.add_log(rt.account_id, None, "keepalive_crashed", False, repr(e)[:200])
+            rt.running = False
+            rt.stats.last_status = "CRASHED"
+            rt.stats.last_error = repr(e)[:200]
+            rt.stats.last_time = time.strftime("%Y-%m-%d %H:%M:%S")
+
+    def _reconcile_machine_runners(self, rt: AccountRuntime) -> None:
+        """对账号下机器列表做 diff，启动/停止 runner。"""
+        running_now = {
+            (m.get("machineId") or m.get("instanceId") or ""): m
+            for m in rt.machines if _is_machine_running(m)
+        }
+        running_now.pop("", None)
+
+        # 启动新增机器的 runner
+        for mid, m in running_now.items():
+            if mid in rt.runners:
+                continue
+            runner = MachineRunner(
+                rt=rt,
+                machine=m,
+                cem_host=rt.cem_host,
+                cem_port=rt.cem_port,
+                token_provider=self._make_token_provider(rt),
+                token_refresher=self._make_token_refresher(rt),
+            )
+            runner.start()
+            rt.runners[mid] = runner
+            log.info("[%s] runner started for machine %s (%s)",
+                     rt.account_name, m.get("machineName", ""), mid)
+
+        # 停掉已下线机器的 runner
+        gone = [mid for mid in rt.runners if mid not in running_now]
+        for mid in gone:
+            runner = rt.runners.pop(mid)
+            asyncio.create_task(runner.stop(),
+                                name=f"stop-runner-{rt.account_id}-{mid}")
+            log.info("[%s] runner stopped for offline machine %s",
+                     rt.account_name, mid)
+
+        # 更新存活 runner 的 machine 引用（status 可能变化但 id 没变）
+        for mid, runner in rt.runners.items():
+            if mid in running_now:
+                runner.machine = running_now[mid]
+
+        # 同步任务统计（让 dashboard 的 last_machines_count 反映当前 runner 数）
+        rt.stats.last_machines_count = len(running_now)
+        rt.stats.last_succeeded_machines = sum(
+            1 for r in rt.runners.values() if r.stats.state == "connected"
+        )
+        rt.stats.last_time = time.strftime("%Y-%m-%d %H:%M:%S")
+        rt.stats.last_status = (
+            f"FOREVER {rt.stats.last_succeeded_machines}/{rt.stats.last_machines_count} connected"
+        )
+
+    def _make_token_provider(
+        self, rt: AccountRuntime,
+    ) -> Callable[[], tuple[str, str]]:
+        """返回闭包：拿 (access_token, access_ticket) — runner 每次重连都取最新。"""
+
+        def _provider() -> tuple[str, str]:
+            return rt.access_token, rt.access_ticket
+
+        return _provider
+
+    def _make_token_refresher(
+        self, rt: AccountRuntime,
+    ) -> Callable[[], Awaitable[bool]]:
+        """返回闭包：账号级单刷 token（用 lock 防止 N 个 runner 并发刷）。"""
+
+        async def _refresher() -> bool:
+            async with rt._token_refresh_lock:
+                return await self._refresh_account_token(rt)
+
+        return _refresher
 
     async def _run_daily_loop(self, rt: AccountRuntime) -> None:
         """daily 保活循环：等 initialDelay → 第一次 → 每 23h 一次。"""

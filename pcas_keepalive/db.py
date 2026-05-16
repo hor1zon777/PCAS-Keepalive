@@ -37,6 +37,7 @@ CREATE TABLE IF NOT EXISTS accounts (
     login_uid       TEXT,
     last_login_at   INTEGER,
     last_error      TEXT,
+    default_mode    TEXT NOT NULL DEFAULT 'forever',
     created_at      INTEGER DEFAULT (CAST(strftime('%s','now') AS INTEGER))
 );
 
@@ -64,6 +65,7 @@ CREATE TABLE IF NOT EXISTS keepalive_tasks (
     last_run_at         INTEGER,
     last_status         TEXT,
     last_message        TEXT,
+    mode                TEXT NOT NULL DEFAULT 'forever',
     UNIQUE(account_id, machine_id)
 );
 
@@ -95,6 +97,16 @@ def init(db_path: str | Path) -> None:
         c.execute("PRAGMA synchronous=NORMAL")
     with conn() as c:
         c.executescript(DDL)
+        # 幂等迁移：老库补列。新库由 DDL 直接建对。
+        for table, col, ddl in (
+            ("accounts", "default_mode", "TEXT NOT NULL DEFAULT 'forever'"),
+            ("keepalive_tasks", "mode", "TEXT NOT NULL DEFAULT 'forever'"),
+        ):
+            try:
+                c.execute(f"ALTER TABLE {table} ADD COLUMN {col} {ddl}")
+            except sqlite3.OperationalError:
+                # 列已存在，跳过
+                pass
 
 
 @contextmanager
@@ -275,6 +287,31 @@ def delete_account(account_id: int) -> None:
         c.execute("DELETE FROM accounts WHERE id=?", (account_id,))
 
 
+# 账号级保活模式偏好（forever / daily）
+
+_VALID_MODES = ("forever", "daily")
+
+
+def set_account_default_mode(account_id: int, mode: str) -> None:
+    if mode not in _VALID_MODES:
+        raise ValueError(f"invalid mode {mode!r}, expected one of {_VALID_MODES}")
+    with conn() as c:
+        c.execute(
+            "UPDATE accounts SET default_mode=? WHERE id=?",
+            (mode, account_id),
+        )
+
+
+def get_account_default_mode(account_id: int) -> str:
+    with conn() as c:
+        row = c.execute(
+            "SELECT default_mode FROM accounts WHERE id=?", (account_id,)
+        ).fetchone()
+    if not row:
+        return "forever"
+    return row["default_mode"] or "forever"
+
+
 # ---------- machines ----------
 
 def upsert_machine(
@@ -348,6 +385,7 @@ def upsert_task(
     enabled: bool = True,
     interval_minutes: int = 20,
     delay_minutes: int = 1440,
+    mode: str = "forever",
 ) -> None:
     with conn() as c:
         row = c.execute(
@@ -357,14 +395,15 @@ def upsert_task(
         if row:
             c.execute(
                 "UPDATE keepalive_tasks SET enabled=?, interval_minutes=?, "
-                "delay_minutes=? WHERE id=?",
-                (int(enabled), interval_minutes, delay_minutes, row["id"]),
+                "delay_minutes=?, mode=? WHERE id=?",
+                (int(enabled), interval_minutes, delay_minutes, mode, row["id"]),
             )
         else:
             c.execute(
                 "INSERT INTO keepalive_tasks(account_id, machine_id, enabled, "
-                "interval_minutes, delay_minutes) VALUES(?,?,?,?,?)",
-                (account_id, machine_id, int(enabled), interval_minutes, delay_minutes),
+                "interval_minutes, delay_minutes, mode) VALUES(?,?,?,?,?,?)",
+                (account_id, machine_id, int(enabled), interval_minutes,
+                 delay_minutes, mode),
             )
 
 

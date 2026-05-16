@@ -220,15 +220,20 @@ class CemStreamClient:
         port: int = DEFAULT_PORT,
         heartbeat_interval: int = HEARTBEAT_INTERVAL_SEC,
         on_server_push: Callable[[int, dict], Awaitable[None]] | None = None,
+        on_disconnect: Callable[[Exception | None], Awaitable[None]] | None = None,
     ) -> None:
         self.host = host
         self.port = port
         self.heartbeat_interval = heartbeat_interval
         self.on_server_push = on_server_push
+        self.on_disconnect = on_disconnect
         self.reader: asyncio.StreamReader | None = None
         self.writer: asyncio.StreamWriter | None = None
         self.connected = False
         self._tasks: list[asyncio.Task] = []
+        # 心跳/推送统计（forever 模式 runner 拿来展示）
+        self.heartbeats_sent = 0
+        self.pushes_received = 0
 
     async def connect(self, ticket: str, device_uid: str) -> dict[str, Any]:
         """建立 TCP 连接 + ConnectionRequest 握手。
@@ -268,21 +273,36 @@ class CemStreamClient:
         frame = encode_frame(CMD_HEARTBEAT_CLIENT, data)
         self.writer.write(frame)
         await self.writer.drain()
+        self.heartbeats_sent += 1
         log.debug("cem_stream → heartbeat (ts=%d)", data["timeStamp"])
 
     async def run(self) -> None:
-        """主循环：心跳 + 接收推送，任一异常都会终止两个 task。"""
+        """主循环：心跳 + 接收推送，任一异常都会终止两个 task。
+
+        无论正常返回还是异常退出，都会触发 on_disconnect 回调（forever 模式靠它
+        感知掉线进入重连）。
+        """
         self._tasks = [
             asyncio.create_task(self._heartbeat_loop(), name="cem_hb"),
             asyncio.create_task(self._read_loop(), name="cem_rx"),
         ]
+        exc: Exception | None = None
         try:
             await asyncio.gather(*self._tasks)
+        except asyncio.CancelledError:
+            raise
         except Exception as e:
+            exc = e
             log.warning("cem_stream: run exited: %s", e)
         finally:
             for t in self._tasks:
                 t.cancel()
+            self.connected = False
+            if self.on_disconnect is not None:
+                try:
+                    await self.on_disconnect(exc)
+                except Exception as cb_err:
+                    log.exception("cem_stream: on_disconnect callback failed: %s", cb_err)
 
     async def _heartbeat_loop(self) -> None:
         while True:
@@ -299,8 +319,9 @@ class CemStreamClient:
             cmd, data = await decode_frame(self.reader)
             log.debug("cem_stream ← cmd=%d data=%s",
                       cmd, json.dumps(data, ensure_ascii=False)[:200])
-            # cmd_id == 2 是心跳响应，不打 info
+            # cmd_id == 2 是心跳响应，不打 info；其他都是 push
             if cmd != CMD_HEARTBEAT_SERVER:
+                self.pushes_received += 1
                 log.info("cem_stream ← push cmd=%d data=%s",
                          cmd, json.dumps(data, ensure_ascii=False)[:200])
             if self.on_server_push:

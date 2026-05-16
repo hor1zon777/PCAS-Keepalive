@@ -27,8 +27,9 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, AsyncIterator, Awaitable, Callable
 
 from .cem_stream import CemStreamClient
 from .client import PCASClient, create_official_session_context
@@ -182,3 +183,73 @@ async def simulate_desktop_session(
     log.info("desktop session done: machine=%s success=%s duration=%dms",
              machine_name, result.success, result.duration_ms)
     return result
+
+
+# ---------- forever 模式：常驻 cem stream 上下文 ----------
+
+
+@asynccontextmanager
+async def cem_stream_session(
+    client: PCASClient,
+    machine: dict[str, Any],
+    device_uid: str,
+    cem_host: str,
+    cem_port: int,
+    *,
+    heartbeat_interval: int = 5,
+    on_push: Callable[[int, dict], Awaitable[None]] | None = None,
+    on_disconnect: Callable[[Exception | None], Awaitable[None]] | None = None,
+) -> AsyncIterator[CemStreamClient]:
+    """单台机器的 cem stream 异步上下文：握手成功后 yield 出 client。
+
+    使用：
+        async with cem_stream_session(...) as cem:
+            run_task = asyncio.create_task(cem.run())
+            ...
+            # 退出时自动 close
+
+    上下文负责：
+      1. record_device_info（best-effort，失败仅 warning）
+      2. cem stream TCP connect + ConnectionRequest 握手
+      3. 出错或正常退出时关闭 socket
+
+    上下文**不**启动 cem.run() — 由调用者按需启动后台 task。
+    """
+    machine_id = machine.get("machineId") or machine.get("instanceId") or ""
+    machine_name = machine.get("machineName", "") or ""
+    ctx = create_official_session_context(machine_id)
+    login_uid = ctx["clientLoginUid"]
+
+    # Step 0: recordDeviceInfo（best-effort）
+    try:
+        record = await client.record_device_info(login_uid)
+        server_login_uid = (record.get("body") or {}).get("loginUid", "")
+        log.debug("[%s] recordDeviceInfo serverLoginUid=%s",
+                  machine_name, server_login_uid)
+    except Exception as e:
+        log.warning("[%s] recordDeviceInfo failed (non-fatal): %s",
+                    machine_name, e)
+
+    if not client.access_ticket:
+        raise RuntimeError("cem stream 需要 accessTicket，但 client.access_ticket 为空")
+
+    cem = CemStreamClient(
+        host=cem_host,
+        port=cem_port,
+        heartbeat_interval=heartbeat_interval,
+        on_server_push=on_push,
+        on_disconnect=on_disconnect,
+    )
+
+    try:
+        handshake = await cem.connect(
+            ticket=client.access_ticket,
+            device_uid=device_uid,
+        )
+        if not handshake.get("success"):
+            raise RuntimeError(f"cem handshake refused: {handshake}")
+        log.info("[%s] cem stream session established (host=%s:%d)",
+                 machine_name, cem_host, cem_port)
+        yield cem
+    finally:
+        await cem.close()

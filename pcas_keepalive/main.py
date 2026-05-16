@@ -178,6 +178,8 @@ async def overview_page(request: Request):
             "running_count": running_count,
             "ka_running": ka.get("running", False),
             "ka_started_at": ka.get("started_at"),
+            "ka_mode": ka.get("mode") or db.get_account_default_mode(a["id"]),
+            "ka_runners": len(ka.get("runners") or []),
         })
 
     return templates.TemplateResponse(
@@ -760,6 +762,33 @@ async def api_ka_trigger(request: Request, admin_id: int = Depends(require_admin
         return result
     except Exception as e:
         db.add_log(aid, None, "manual_trigger", False, repr(e))
+        return JSONResponse({"ok": False, "msg": repr(e)}, status_code=400)
+
+
+@app.post("/api/keepalive/mode")
+async def api_ka_set_mode(
+    request: Request,
+    mode: str = Form(...),
+    admin_id: int = Depends(require_admin),
+):
+    """切换账号的保活模式（forever 持续在线 / daily 23h 短打卡）。
+
+    切换会先停掉当前 runtime，再以新模式重启；持久化到 accounts.default_mode。
+    """
+    mode = (mode or "").strip().lower()
+    if mode not in ("forever", "daily"):
+        return JSONResponse(
+            {"ok": False, "msg": f"invalid mode {mode!r}, expected forever|daily"},
+            status_code=400,
+        )
+    aid = current_account_id(request)
+    sched = get_scheduler()
+    try:
+        result = await sched.set_mode(aid, mode)
+        db.add_log(aid, None, "keepalive_mode_switch", True, f"-> {mode}")
+        return result
+    except Exception as e:
+        db.add_log(aid, None, "keepalive_mode_switch", False, repr(e))
         return JSONResponse({"ok": False, "msg": repr(e)}, status_code=400)
 
 

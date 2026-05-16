@@ -49,17 +49,29 @@
     <div class="text-lg mt-1 font-medium text-slate-900">{{ machines|length }} 台</div>
   </div>
   <div class="bg-white border border-slate-200 rounded-xl p-5">
-    <div class="text-xs text-slate-500">24h 保活</div>
+    <div class="text-xs text-slate-500">保活状态</div>
     <div class="text-lg mt-1 font-medium flex items-center gap-1.5">
       {% if ka_status.running %}
         <span class="text-emerald-500">{{ icon('circle-on', 'h-3 w-3') }}</span>
         <span class="text-emerald-700">运行中</span>
+        {% if ka_status.mode == 'forever' %}
+          <span class="text-xs px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200">forever</span>
+        {% else %}
+          <span class="text-xs px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-700 border border-indigo-200">daily</span>
+        {% endif %}
       {% else %}
         <span class="text-slate-400">{{ icon('circle-off', 'h-3 w-3') }}</span>
         <span class="text-slate-600">已停止</span>
+        <span class="text-xs px-1.5 py-0.5 rounded bg-slate-50 text-slate-500 border border-slate-200">默认 {{ ka_status.mode or 'forever' }}</span>
       {% endif %}
     </div>
-    <div class="text-xs text-slate-400 mt-1">每 23h 一次桌面会话模拟（cem stream）</div>
+    <div class="text-xs text-slate-400 mt-1">
+      {% if ka_status.mode == 'forever' %}
+        每台机器维持常驻 cem 长连接 + 25s REST 心跳
+      {% else %}
+        每 23h 一次桌面会话模拟（cem stream）
+      {% endif %}
+    </div>
   </div>
   <div class="bg-white border border-slate-200 rounded-xl p-5">
     <div class="text-xs text-slate-500 mb-2">操作</div>
@@ -72,9 +84,15 @@
       {% if ka_status.running %}
         <button onclick="triggerKa()"
                 class="flex items-center justify-center gap-1.5 px-2 py-1.5 text-xs rounded-md bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200"
-                title="不等 23h 周期，立即跑一次桌面会话模拟">
+                title="{% if ka_status.mode == 'forever' %}强制所有 runner 立即断开重连{% else %}不等 23h 周期，立即跑一次桌面会话模拟{% endif %}">
           {{ icon('play', 'h-3.5 w-3.5') }}
-          立即触发
+          {% if ka_status.mode == 'forever' %}强制重连{% else %}立即触发{% endif %}
+        </button>
+        <button onclick="switchMode()"
+                class="flex items-center justify-center gap-1.5 px-2 py-1.5 text-xs rounded-md bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-200"
+                title="切换保活策略（forever 持续在线 / daily 23h 短打卡）">
+          {{ icon('refresh', 'h-3.5 w-3.5') }}
+          切到 {% if ka_status.mode == 'forever' %}daily{% else %}forever{% endif %}
         </button>
         <button onclick="stopKa()"
                 class="flex items-center justify-center gap-1.5 px-2 py-1.5 text-xs rounded-md bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200">
@@ -104,7 +122,8 @@
   </h2>
   <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
     {% set name_map = {
-      'daily_desktop_session': '每日桌面会话模拟 (23h 周期)'
+      'daily_desktop_session': '每日桌面会话模拟 (23h 周期)',
+      'forever_cem_session':   '持续 cem 长连接 (forever)',
     } %}
     {% for tid, s in ka_status.tasks.items() %}
     <div class="bg-slate-50 border border-slate-200 rounded-lg p-3">
@@ -132,6 +151,65 @@
       {% endif %}
     </div>
     {% endfor %}
+  </div>
+</section>
+{% endif %}
+
+{# forever 模式下的每机器 runner 状态 #}
+{% if ka_status.running and ka_status.mode == 'forever' and ka_status.runners %}
+<section class="bg-white border border-slate-200 rounded-2xl shadow-sm p-6 mb-6">
+  <h2 class="text-lg font-medium text-slate-900 mb-4 flex items-center gap-2">
+    <span class="text-emerald-500">{{ icon('pulse', 'h-5 w-5') }}</span>
+    机器运行器（forever）
+    <span class="ml-auto text-xs text-slate-400">每台 running 机器各一条常驻 cem 长连接</span>
+  </h2>
+  <div class="overflow-x-auto">
+    <table class="w-full text-sm">
+      <thead class="text-xs text-slate-500 uppercase border-b border-slate-200">
+        <tr>
+          <th class="text-left py-2 px-3 font-medium">机器</th>
+          <th class="text-left py-2 px-3 font-medium">状态</th>
+          <th class="text-left py-2 px-3 font-medium">握手次数</th>
+          <th class="text-left py-2 px-3 font-medium">cem 心跳</th>
+          <th class="text-left py-2 px-3 font-medium">REST 心跳</th>
+          <th class="text-left py-2 px-3 font-medium">服务端推送</th>
+          <th class="text-left py-2 px-3 font-medium">失败次数</th>
+          <th class="text-left py-2 px-3 font-medium">最近错误</th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for r in ka_status.runners %}
+        {% set state_color = {
+          'connected': 'emerald',
+          'starting': 'amber',
+          'reconnecting': 'rose',
+          'paused': 'slate',
+          'stopped': 'slate',
+        }.get(r.state, 'slate') %}
+        <tr class="border-b border-slate-100 hover:bg-slate-50/50 transition">
+          <td class="py-2 px-3">
+            <div class="font-medium text-slate-900 text-sm">{{ r.machine_name }}</div>
+            <div class="text-xs text-slate-400 font-mono truncate max-w-[180px]" title="{{ r.machine_id }}">{{ r.machine_id }}</div>
+          </td>
+          <td class="py-2 px-3">
+            <span class="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded
+                         bg-{{ state_color }}-50 text-{{ state_color }}-700 border border-{{ state_color }}-200">
+              {{ r.state }}
+              {% if r.state == 'reconnecting' and r.current_backoff_sec %}
+                <span class="text-{{ state_color }}-500">({{ r.current_backoff_sec|round(1) }}s)</span>
+              {% endif %}
+            </span>
+          </td>
+          <td class="py-2 px-3 font-mono text-slate-700 text-xs">{{ r.handshakes }}</td>
+          <td class="py-2 px-3 font-mono text-emerald-700 text-xs">{{ r.cem_heartbeats }}</td>
+          <td class="py-2 px-3 font-mono text-indigo-700 text-xs">{{ r.rest_heartbeats }}</td>
+          <td class="py-2 px-3 font-mono text-slate-500 text-xs">{{ r.server_pushes }}</td>
+          <td class="py-2 px-3 font-mono text-xs {{ 'text-rose-600' if r.consecutive_failures else 'text-slate-400' }}">{{ r.consecutive_failures }}</td>
+          <td class="py-2 px-3 text-xs text-rose-500/80 truncate max-w-[220px]" title="{{ r.last_error }}">{{ r.last_error or '-' }}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
   </div>
 </section>
 {% endif %}
@@ -283,7 +361,11 @@ async function stopKa() {
 }
 
 async function triggerKa() {
-  if (!confirm('立即跑一次桌面会话模拟（约 30 秒）？')) return;
+  const mode = {{ (ka_status.mode or 'forever') | tojson }};
+  const msg = mode === 'forever'
+    ? '强制所有机器 runner 立即断开重连？'
+    : '立即跑一次桌面会话模拟（约 30 秒）？';
+  if (!confirm(msg)) return;
   const btn = event.target.closest('button');
   const orig = btn.innerHTML;
   btn.disabled = true;
@@ -292,7 +374,11 @@ async function triggerKa() {
     const r = await fetch('/api/keepalive/trigger', { method: 'POST' });
     const b = await r.json();
     if (r.ok && b.ok) {
-      alert(`已触发: ${b.succeeded_machines}/${b.total_machines} 台机器成功\n${b.last_status}`);
+      if (b.mode === 'forever') {
+        alert(`已触发 ${b.triggered_runners} 个 runner 重连\n${b.last_status}`);
+      } else {
+        alert(`已触发: ${b.succeeded_machines}/${b.total_machines} 台机器成功\n${b.last_status}`);
+      }
       location.reload();
     } else {
       alert('触发失败: ' + (b.msg || JSON.stringify(b)));
@@ -300,6 +386,25 @@ async function triggerKa() {
   } finally {
     btn.disabled = false;
     btn.innerHTML = orig;
+  }
+}
+
+async function switchMode() {
+  const current = {{ (ka_status.mode or 'forever') | tojson }};
+  const target = current === 'forever' ? 'daily' : 'forever';
+  const confirmMsg = target === 'forever'
+    ? '切换到 forever 模式？\n每台机器维持常驻 cem 长连接 + 25s REST 辅助心跳，资源占用稍高但保活更可靠。'
+    : '切换到 daily 模式？\n每 23h 跑一次 30s 短打卡，资源占用最低但依赖服务端 24h 判活窗口。';
+  if (!confirm(confirmMsg)) return;
+  const fd = new FormData();
+  fd.set('mode', target);
+  const r = await fetch('/api/keepalive/mode', { method: 'POST', body: fd });
+  const b = await r.json().catch(() => ({}));
+  if (r.ok && b.ok) {
+    alert(`已切换到 ${target} 模式`);
+    location.reload();
+  } else {
+    alert('切换失败: ' + (b.msg || JSON.stringify(b)));
   }
 }
 
