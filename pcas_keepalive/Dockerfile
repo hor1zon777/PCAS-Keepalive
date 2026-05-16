@@ -1,6 +1,10 @@
-# syntax=docker/dockerfile:1.7
 # ──────────────────────────────────────────────────────────────────────────────
 # pcas_keepalive Dockerfile (uv multi-stage)
+#
+# 不使用 `# syntax=docker/dockerfile:1.7` 指令：国内 docker.io 拉
+# 外部 frontend image 经常失败。BuildKit 自带的 builtin frontend 已经
+# 原生支持 `RUN --mount=type=cache,...`（自 BuildKit 0.8+），不需要
+# 升级到 dockerfile-frontend 1.x。
 #
 # 镜像分为 builder 与 runtime 两阶段：
 #   builder：用 uv 官方镜像（含 uv + python 3.12）安装锁定依赖到 .venv
