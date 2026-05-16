@@ -76,3 +76,24 @@ Thumbs.db
 # ===== 系统 =====
 ehthumbs.db
 desktop.ini
+
+# ===== macOS 公众版样本（体积 350+ MB，版权且可重新下载） =====
+*.pkg
+
+# ===== 第三方文章 / 协议导出 PDF =====
+*.pdf
+
+# ===== 第三方 clone 仓库（家庭版 Go 项目，参考用） =====
+cloud-computer-keepalive-master/
+
+# ===== Electron pkg 解包 / asar 反混淆中间产物（可重新生成，体积大） =====
+ecloud_app/
+ecloud_asar/
+ecloud_deob/
+ecloud_pkg_out/
+
+# ===== 一次性逆向脚本（解混淆/解包工具） =====
+tools/
+
+# ===== 临时代码评审输出 =====
+code_review_*.md
