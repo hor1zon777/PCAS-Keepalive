@@ -38,7 +38,7 @@
   <div class="bg-white border border-slate-200 rounded-xl p-5">
     <div class="text-xs text-slate-500 flex items-center gap-1.5">
       <span class="text-indigo-500">{{ icon('pulse', 'h-3.5 w-3.5') }}</span>
-      心跳统计
+      保活统计
     </div>
     <div class="text-2xl font-semibold mt-2">
       <span class="text-emerald-600">{{ totals.ka_success }}</span>
@@ -53,15 +53,14 @@
 <div class="bg-emerald-50 border border-emerald-200 rounded-xl p-4 mb-6 text-sm text-emerald-900 flex gap-3">
   <span class="text-emerald-600 shrink-0 mt-0.5">{{ icon('info', 'h-5 w-5') }}</span>
   <div class="text-xs">
-    <p class="font-medium mb-1">关于保活策略（双模式可切换）</p>
+    <p class="font-medium mb-1">桌面保活策略</p>
     <p class="text-emerald-800/90">
-      <b>forever（推荐）</b>：每台 running 机器维持常驻 cem 长连接（<code class="px-1 py-0.5 bg-emerald-100 rounded">5s 心跳</code>） +
-      <code class="px-1 py-0.5 bg-emerald-100 rounded">25s REST 辅助心跳</code>，断线指数退避自动重连。参考 Go 版
-      <code class="px-1 py-0.5 bg-emerald-100 rounded">cloud-computer-keepalive --forever</code> 思路。
-      <br/>
-      <b>daily（保留）</b>：每 <code class="px-1 py-0.5 bg-emerald-100 rounded">23h</code> 跑一次
-      <code class="px-1 py-0.5 bg-emerald-100 rounded">recordDeviceInfo → cem 握手 → 30s 心跳</code> 短打卡。
-      cem 端点 <code class="px-1 py-0.5 bg-emerald-100 rounded">36.133.24.236:8090</code> 已字节级闭环。模式可在控制台切换。
+      每台 running 机器周期性建立真实桌面连接：
+      <code class="px-1 py-0.5 bg-emerald-100 rounded">ZTEC 握手</code> →
+      <code class="px-1 py-0.5 bg-emerald-100 rounded">TLS 1.2</code> →
+      <code class="px-1 py-0.5 bg-emerald-100 rounded">cs_suOperDesktop</code> →
+      维持 TCP <code class="px-1 py-0.5 bg-emerald-100 rounded">10min</code>，
+      断线指数退避自动重连。
     </p>
   </div>
 </div>
@@ -119,13 +118,9 @@
             {% endif %}
           </td>
           <td class="py-3 px-3">
-            {% if r.ka_mode == 'forever' %}
-              <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs bg-emerald-50 text-emerald-700 border border-emerald-200">forever</span>
-              {% if r.ka_running and r.ka_runners %}
-                <span class="text-xs text-slate-400 ml-1">{{ r.ka_runners }} runner</span>
-              {% endif %}
-            {% else %}
-              <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs bg-indigo-50 text-indigo-700 border border-indigo-200">daily</span>
+            <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs bg-emerald-50 text-emerald-700 border border-emerald-200">桌面保活</span>
+            {% if r.ka_running and r.ka_runners %}
+              <span class="text-xs text-slate-400 ml-1">{{ r.ka_runners }} runner</span>
             {% endif %}
           </td>
           <td class="py-3 px-3">
