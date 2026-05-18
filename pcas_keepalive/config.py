@@ -21,11 +21,6 @@ class Settings(BaseSettings):
     debug_dump_payload: bool = False
     cem_rsa_enabled: bool = True
 
-    # eCloud OpenAPI 签名
-    pcas_sign_enabled: bool = False
-    ecloud_access_key: str = ""
-    ecloud_secret_key: str = ""
-
     db_path: str = "pcas.db"
     base_dir: Path = Path(__file__).resolve().parent
 
