@@ -370,8 +370,6 @@ async def api_login(
 
     existing = db.get_account_by_mobile(mobile)
     device_id = existing["device_id"] if existing else str(uuid.uuid4())
-    pwd_blob = aes_seal(password, settings.local_key_hex)
-    acct_id = db.upsert_account(mobile, pwd_blob, device_id)
 
     client = PCASClient(
         base_url=settings.pcas_base_url,
@@ -383,16 +381,17 @@ async def api_login(
         try:
             result = await client.login_by_password(mobile, password)
         except PCASError as e:
-            db.update_account_session(acct_id, None, None, None, e.msg)
-            db.add_log(acct_id, None, "login", False, e.msg)
+            if existing:
+                db.update_account_session(existing["id"], None, None, None, e.msg)
+                db.add_log(existing["id"], None, "login", False, e.msg)
             return JSONResponse(
                 {"ok": False, "code": str(e.code), "msg": e.msg}, status_code=400
             )
 
         if result.get("status") != "success":
-            # 设备未受信任 / 二次验证 — 提示需要短信码
-            db.add_log(acct_id, None, "login", False,
-                       f"challenge: {result.get('challengeType')}")
+            if existing:
+                db.add_log(existing["id"], None, "login", False,
+                           f"challenge: {result.get('challengeType')}")
             return JSONResponse({
                 "ok": False,
                 "challenge": True,
@@ -401,6 +400,9 @@ async def api_login(
                 "mobile": result.get("mobile"),
             }, status_code=400)
 
+        # 登录成功后才写入/更新账号
+        pwd_blob = aes_seal(password, settings.local_key_hex)
+        acct_id = db.upsert_account(mobile, pwd_blob, device_id)
         db.update_account_session(
             acct_id,
             result["accessToken"],
@@ -459,10 +461,6 @@ async def api_login_sms(
 ):
     existing = db.get_account_by_mobile(mobile)
     device_id = existing["device_id"] if existing else str(uuid.uuid4())
-    pwd_blob = (
-        existing["password_blob"] if existing else aes_seal("", settings.local_key_hex)
-    )
-    acct_id = db.upsert_account(mobile, pwd_blob, device_id)
 
     client = PCASClient(
         base_url=settings.pcas_base_url,
@@ -474,13 +472,20 @@ async def api_login_sms(
         try:
             result = await client.login_by_sms(mobile, code)
         except PCASError as e:
-            db.update_account_session(acct_id, None, None, None, e.msg)
-            db.add_log(acct_id, None, "login_sms", False, e.msg)
+            if existing:
+                db.update_account_session(existing["id"], None, None, None, e.msg)
+                db.add_log(existing["id"], None, "login_sms", False, e.msg)
             return JSONResponse(
                 {"ok": False, "code": str(e.code), "msg": e.msg}, status_code=400
             )
+
+        # 登录成功后才写入/更新账号
+        pwd_blob = (
+            existing["password_blob"] if existing else aes_seal("", settings.local_key_hex)
+        )
+        acct_id = db.upsert_account(mobile, pwd_blob, device_id)
+
         if result.get("status") != "success":
-            # 短信登录的 challenge：把 accessTicket 暂存到 session，让前端 UI 选「信任/临时」
             request.session["pending_trust"] = {
                 "mobile": mobile,
                 "accessTicket": result.get("accessTicket", ""),
