@@ -169,30 +169,10 @@ class CagParam:
         if len(vm_id) != 36:
             raise ValueError(f"machineId 应为 36 字符 UUID, got {len(vm_id)}")
 
-        # frame 125 bytes 4-19: 桌面 VM 的 IPv6（不是 CAG 网关）
-        # 优先从 machineAddress 里提取 IPv6
-        machine_addr = machine.get("machineAddress") or machine.get("ip") or ""
-        vm_ipv6 = ""
-        for part in machine_addr.replace(",", ";").split(";"):
-            part = part.strip()
-            if ":" in part and not part.startswith("["):
-                vm_ipv6 = part
-                break
-        # fallback: customLoginParams.csapipv6 (去掉端口)
-        if not vm_ipv6:
-            csap_v6 = custom_login_params.get("csapipv6", "")
-            if csap_v6:
-                # "2409:...:30087" → 去掉末尾端口号
-                parts = csap_v6.rsplit(":", 1)
-                if len(parts) == 2 and parts[1].isdigit():
-                    vm_ipv6 = parts[0]
-                else:
-                    vm_ipv6 = csap_v6
-
-        if vm_ipv6:
-            server_ipv6_bin = socket.inet_pton(socket.AF_INET6, vm_ipv6)
-        else:
-            server_ipv6_bin = b"\x00" * 16
+        # frame 125 bytes 4-19: 桌面 VM 的 IPv6
+        # ⚠️ 真实客户端用 --hv6 (VM SPICE 服务 IPv6)，来源未确定
+        # 目前用全零（如果服务端不检查此字段就能通过）
+        server_ipv6_bin = b"\x00" * 16
 
         extra_40 = vm_id.encode("ascii") + b"\x00" * 4
 

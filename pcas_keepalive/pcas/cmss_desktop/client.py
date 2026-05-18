@@ -145,7 +145,8 @@ class CmssDesktopClient:
         hello = encode_ztec_hello(cag_param, client_key)
         self._writer.write(hello)
         await self._writer.drain()
-        log.info("[ztec] -> hello (client_key=0x%08x)", client_key)
+        log.info("[ztec] -> hello (client_key=0x%08x) cag_data=%s",
+                 client_key, hello[18:34].hex())
 
         pong = await asyncio.wait_for(self._reader.readexactly(50), timeout=10)
         pong_info = decode_ztec_pong(pong)
@@ -157,7 +158,9 @@ class CmssDesktopClient:
         )
         self._writer.write(auth_pkt)
         await self._writer.drain()
-        log.info("[ztec] -> AuthPacket (%dB)", len(auth_pkt))
+        log.info("[ztec] -> AuthPacket (%dB) hex[0:20]=%s ipv6=%s vmid=%s",
+                 len(auth_pkt), auth_pkt[:20].hex(),
+                 auth_pkt[4:20].hex(), auth_pkt[20:56].decode("ascii", "replace"))
 
         ack = await asyncio.wait_for(self._reader.readexactly(36), timeout=5)
         ack_info = decode_ztec_ack(ack)
