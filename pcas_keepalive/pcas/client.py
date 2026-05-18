@@ -911,6 +911,12 @@ def _map_remote_machine(m: dict) -> dict[str, Any]:
         "resourcePoolUid": m.get("resourcePoolUid") or "",
         "companyCode": m.get("companyCode") or m.get("originCompanyCode") or "ZTE",
         "originCompanyCode": m.get("originCompanyCode") or m.get("companyCode") or "",
+        # CMSS 桌面层需要的字段（ZTEC 握手用）
+        "adUser": m.get("adUser") or "",
+        "adPassword": m.get("adPassword") or "",
+        "customLoginParams": m.get("customLoginParams") or "",
+        "customParams": m.get("customParams") if isinstance(m.get("customParams"), (str, dict)) else cp,
+        "customPrivateLoginParams": m.get("customPrivateLoginParams") or "",
     }
 
 

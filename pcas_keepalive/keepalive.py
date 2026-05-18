@@ -539,70 +539,52 @@ class MachineRunner:
                 continue
 
     async def _attempt_cmss_desktop(self) -> None:
-        """执行一次 CMSS 桌面层尝试（ZTEC 握手 + TLS + cs_suOperDesktop）。
+        """执行一次 CMSS 桌面层：ZTEC 握手 + TLS + cs_suOperDesktop.action。
 
-        ⚠️ 当前仅能完成 ZTEC frame 116 + 124 阶段。
-        Frame 125 AuthPacket 的 AES 加密尚未完整还原，预期 ack 失败。
+        完整链路（IDA 反编 + pcap AES 解密验证通过）：
+        1. 从 machine 字典拿 adUser/adPassword/customLoginParams.cagList
+        2. SDK AES 解密 adPassword → 密码明文
+        3. TCP 连接 CAG 网关 → ZTEC 5 帧握手 (AES-256-CBC)
+        4. TLS 升级 → POST cs_suOperDesktop.action
+        5. 维持 TCP 连接（作为桌面保活信号）
         """
-        server_ip, server_port = self._resolve_cmss_desktop_endpoint()
-        if not server_ip:
-            log.info("[%s/%s] CMSS desktop skipped: 没有桌面服务器地址",
+        if not self.machine.get("adUser") or not self.machine.get("adPassword"):
+            log.info("[%s/%s] CMSS desktop skipped: machine 无 adUser/adPassword",
                      self.rt.account_name, self.machine_name)
             return
 
-        vm_id = (self.machine.get("instanceId") or self.machine.get("machineId") or "")
-        if not (isinstance(vm_id, str) and len(vm_id) == 36 and vm_id.count("-") == 4):
-            log.info("[%s/%s] CMSS desktop skipped: machineId 不是 UUID 格式 (%s)",
-                     self.rt.account_name, self.machine_name, vm_id)
+        clp_raw = self.machine.get("customLoginParams")
+        if not clp_raw:
+            log.info("[%s/%s] CMSS desktop skipped: machine 无 customLoginParams",
+                     self.rt.account_name, self.machine_name)
             return
 
-        company_code = str(self.machine.get("companyCode")
-                           or self.machine.get("originCompanyCode") or "CMSSZTE").upper()
-        if company_code == "CMSS":
-            company_code = "CMSSZTE"
+        settings = get_settings()
+        keep_seconds = settings.forever_cmss_desktop_interval_sec // 2  # 维持一半间隔时间
 
-        log.info("[%s/%s] CMSS desktop attempt: server=%s:%d vmId=%s",
-                 self.rt.account_name, self.machine_name,
-                 server_ip, server_port, vm_id)
+        log.info("[%s/%s] CMSS desktop attempt (keep=%ds)...",
+                 self.rt.account_name, self.machine_name, keep_seconds)
 
-        # 构造 cag_param（⚠️ username/password 是占位 — 真实内容来源待反编 libvdconn）
-        try:
-            cag_param = CagParam.from_machine_connect(
-                server_ipv6=server_ip,
-                vm_id=vm_id,
-                spice_proxy_port=5100,           # 客户端 SPICE proxy 监听端口
-                guest_user="",                    # ⚠️ 待补
-                guest_password="",                # ⚠️ 待补
-            )
-        except Exception as e:
-            log.warning("[%s/%s] CMSS cag_param 构造失败: %s",
-                        self.rt.account_name, self.machine_name, e)
-            db.add_log(self.rt.account_id, self.machine_id,
-                       "cmss_desktop", False, f"cag_param: {e!r}"[:200])
-            return
-
-        async with CmssDesktopClient(
-            server_ipv6=server_ip,
-            server_port=server_port,
-            company_code=company_code,
-        ) as cli:
-            result = await cli.connect_and_handshake_only(cag_param)
+        result = await CmssDesktopClient.connect_desktop(
+            machine=self.machine,
+            keep_alive_seconds=keep_seconds,
+        )
 
         status = (
-            f"hello={result.ztec_hello_ok} "
-            f"pong={result.ztec_pong_ok} "
-            f"auth_ack={result.ztec_auth_ok} "
-            f"server_key=0x{result.server_key:08x} "
-            f"duration={result.duration_ms}ms "
-            f"sent={result.bytes_sent}B recv={result.bytes_received}B"
+            f"ztec={result.ztec_auth_ok} "
+            f"tls={result.tls_ok} "
+            f"cs_action={result.cs_action_ok} "
+            f"cag={result.cag_addr}:{result.cag_port} "
+            f"duration={result.duration_ms}ms"
         )
-        if result.ztec_auth_ok:
-            log.info("[%s/%s] CMSS desktop ZTEC OK (%s)",
-                     self.rt.account_name, self.machine_name, status)
+        if result.cs_action_ok:
+            log.info("[%s/%s] CMSS desktop OK connectStr=%s... (%s)",
+                     self.rt.account_name, self.machine_name,
+                     result.connect_str[:20], status)
             db.add_log(self.rt.account_id, self.machine_id,
                        "cmss_desktop", True, status)
         else:
-            log.warning("[%s/%s] CMSS desktop ZTEC FAILED: %s (%s)",
+            log.warning("[%s/%s] CMSS desktop FAILED: %s (%s)",
                         self.rt.account_name, self.machine_name,
                         result.error, status)
             db.add_log(self.rt.account_id, self.machine_id,
