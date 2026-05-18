@@ -771,24 +771,13 @@ async def api_ka_set_mode(
     mode: str = Form(...),
     admin_id: int = Depends(require_admin),
 ):
-    """切换账号的保活模式（forever 持续在线 / daily 23h 短打卡）。
-
-    切换会先停掉当前 runtime，再以新模式重启；持久化到 accounts.default_mode。
-    """
-    mode = (mode or "").strip().lower()
-    if mode not in ("forever", "daily"):
-        return JSONResponse(
-            {"ok": False, "msg": f"invalid mode {mode!r}, expected forever|daily"},
-            status_code=400,
-        )
+    """切换保活模式（当前仅支持 forever 桌面保活）。"""
     aid = current_account_id(request)
     sched = get_scheduler()
     try:
-        result = await sched.set_mode(aid, mode)
-        db.add_log(aid, None, "keepalive_mode_switch", True, f"-> {mode}")
+        result = await sched.set_mode(aid, "forever")
         return result
     except Exception as e:
-        db.add_log(aid, None, "keepalive_mode_switch", False, repr(e))
         return JSONResponse({"ok": False, "msg": repr(e)}, status_code=400)
 
 
