@@ -40,7 +40,20 @@ from typing import Any, Awaitable, Callable
 
 import db
 from config import get_settings
-from pcas.client import PCASClient, PCASError, is_running
+from pcas.client import (
+    PCASClient,
+    PCASError,
+    SessionContext,
+    build_connect_list_for_keepalive,
+    is_running,
+    make_session_context,
+)
+from pcas.cmss_desktop import (
+    AUTH_TYPE_RADIUS,
+    CagParam,
+    CmssDesktopClient,
+    CmssDesktopResult,
+)
 from pcas.crypto import aes_open, get_device_info
 from pcas.desktop_session import (
     cem_stream_session,
@@ -123,6 +136,8 @@ class AccountRuntime:
     machine_refresh_task: asyncio.Task | None = None
     # token 失效并发刷新保护
     _token_refresh_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+    # 会话上下文（对齐 Node 项目 commonParams） — 用于 connectId / pushConnectEventData 上报
+    session_ctx: SessionContext = field(default_factory=SessionContext)
 
 
 class MachineRunner:
@@ -209,8 +224,10 @@ class MachineRunner:
         while not self._stopping.is_set():
             self.stats.state = "starting"
             self.stats.current_backoff_sec = 0.0
+            was_connected = False
             try:
                 await self._run_one_session()
+                was_connected = self.stats.handshakes > 0
                 # 正常返回 == 主动 stop 或 trigger reconnect
                 if self._force_reconnect.is_set():
                     self._force_reconnect.clear()
@@ -230,6 +247,14 @@ class MachineRunner:
                     self.rt.account_id, self.machine_id,
                     "forever_session_error", False, repr(e)[:200],
                 )
+                # 仅在曾经握手成功后失败时上报 connect.failure
+                # （首次握手就失败时还没"连上"，不能上报 disconnect 事件）
+                if self.stats.handshakes > 0:
+                    try:
+                        await self._report_connect_failure_standalone(repr(e)[:120])
+                    except Exception as cb_err:
+                        log.debug("[%s/%s] connect.failure post-runner failed: %s",
+                                  self.rt.account_name, self.machine_name, cb_err)
 
             if self._stopping.is_set():
                 break
@@ -246,6 +271,31 @@ class MachineRunner:
             backoff = min(backoff * 2, max_backoff)
 
         self.stats.state = "stopped"
+
+    async def _report_connect_failure_standalone(self, err_msg: str) -> None:
+        """在 supervisor 异常分支里调，需要新开一个临时 client（因为原 client 已 close）。"""
+        if not self.machine.get("connectId"):
+            return  # 没建过会话就没必要上报 failure
+        settings = get_settings()
+        access_token, access_ticket = self._token_provider()
+        if not access_token or not access_ticket:
+            return
+        c = PCASClient(
+            base_url=settings.pcas_base_url,
+            timeout=settings.http_timeout,
+            debug_dump=settings.debug_dump_payload,
+        )
+        c.account_name = self.rt.account_name
+        c.access_token = access_token
+        c.access_ticket = access_ticket
+        try:
+            await self._report_connect_event(
+                c, "connect.failure",
+                error_code="ERR_DISCONNECT",
+                error_msg=err_msg,
+            )
+        finally:
+            await c.close()
 
     async def _run_one_session(self) -> None:
         """跑一次完整会话：握手 → 三 loop 并发 → 任一退出 → cleanup。"""
@@ -303,6 +353,11 @@ class MachineRunner:
                     f"cem={self.cem_host}:{self.cem_port}",
                 )
 
+                # cem stream 握手成功后立刻上报 connect.result，
+                # 让服务端认为"用户已建立桌面会话"（对齐 Node 项目）。
+                # 该事件必须有真实 connectId（来自 establish_session）。
+                await self._report_connect_event(client, "connect.result")
+
                 cem_task = asyncio.create_task(cem.run(), name="cem_run")
                 rest_task = asyncio.create_task(
                     self._rest_heartbeat_loop(client),
@@ -320,7 +375,19 @@ class MachineRunner:
                     self._stopping.wait(),
                     name="stop_signal",
                 )
+                # CMSS 桌面层模拟（可选，默认禁用）
+                # 只对 companyCode=CMSS/ZTE 的机器启用；且必须在 settings 里显式打开。
+                cmss_task: asyncio.Task | None = None
+                if (settings.forever_enable_cmss_desktop
+                        and self._is_cmss_desktop_machine()):
+                    cmss_task = asyncio.create_task(
+                        self._cmss_desktop_loop(),
+                        name="cmss_desktop",
+                    )
+
                 all_tasks = [cem_task, rest_task, refresh_task, force_task, stop_task]
+                if cmss_task is not None:
+                    all_tasks.append(cmss_task)
 
                 try:
                     done, _ = await asyncio.wait(
@@ -330,7 +397,10 @@ class MachineRunner:
                     for t in all_tasks:
                         if not t.done():
                             t.cancel()
-                    for t in (cem_task, rest_task, refresh_task):
+                    cleanup_tasks = [cem_task, rest_task, refresh_task]
+                    if cmss_task is not None:
+                        cleanup_tasks.append(cmss_task)
+                    for t in cleanup_tasks:
                         try:
                             await t
                         except (asyncio.CancelledError, Exception):
@@ -353,13 +423,203 @@ class MachineRunner:
         finally:
             await client.close()
 
+    async def _report_connect_event(
+        self,
+        client: PCASClient,
+        event_type: str,
+        *,
+        error_code: str = "",
+        error_msg: str = "",
+    ) -> None:
+        """上报 pushConnectEventData（CloudEvents 1.0）。失败仅记日志，不抛异常。
+
+        - connect.result：cem stream 握手成功后调，等价于"H3C 桌面客户端已就绪"
+        - connect.failure：runner 失败/断开时调
+
+        connect.result 需要真实 connectId（来自 establish_session）；如果机器还没
+        建会话，跳过上报。
+        """
+        if event_type == "connect.result" and not self.machine.get("connectId"):
+            log.info(
+                "[%s/%s] skip %s: machine has no connectId (establish_session 未成功)",
+                self.rt.account_name, self.machine_name, event_type,
+            )
+            return
+        try:
+            self.rt.session_ctx.session_started_at = time.strftime(
+                "%Y-%m-%dT%H:%M:%SZ", time.gmtime(),
+            )
+            resp = await client.push_connect_event_cloud(
+                machine=self.machine,
+                session_ctx=self.rt.session_ctx,
+                event_type=event_type,
+                error_code=error_code,
+                error_msg=error_msg,
+            )
+            code = str(resp.get("errorCode", ""))
+            if code == "200":
+                db.add_log(
+                    self.rt.account_id, self.machine_id,
+                    f"push_connect_event_{event_type}", True, "",
+                )
+                log.info("[%s/%s] %s reported ok",
+                         self.rt.account_name, self.machine_name, event_type)
+            else:
+                db.add_log(
+                    self.rt.account_id, self.machine_id,
+                    f"push_connect_event_{event_type}", False,
+                    f"errorCode={code} msg={resp.get('errorMessage', '')[:120]}",
+                )
+                log.warning("[%s/%s] %s reported failure: %s",
+                            self.rt.account_name, self.machine_name,
+                            event_type, resp.get("errorMessage", ""))
+        except Exception as e:
+            log.warning("[%s/%s] %s push failed: %s",
+                        self.rt.account_name, self.machine_name, event_type, e)
+            db.add_log(
+                self.rt.account_id, self.machine_id,
+                f"push_connect_event_{event_type}", False, repr(e)[:200],
+            )
+
+    # ---------- CMSS 桌面层模拟（实验性，默认禁用） ----------
+
+    def _is_cmss_desktop_machine(self) -> bool:
+        """判断这台机器是否需要 CMSS 桌面层模拟（companyCode 是 CMSS/ZTE）。"""
+        cc = str(self.machine.get("companyCode") or
+                 self.machine.get("originCompanyCode") or "").upper()
+        return cc in ("CMSS", "CMSSZTE", "ZTE")
+
+    def _resolve_cmss_desktop_endpoint(self) -> tuple[str, int]:
+        """从 machine 字典里挖 CMSS 桌面服务器地址。
+
+        ⚠️ 当前实现是占位：machine 字典里没有"桌面服务器地址"字段，
+        需要 cs_sysConfig.action 或 customParams 才能拿到。
+        默认返回 machine.ip + 8899（不一定对）。
+        """
+        settings = get_settings()
+        ip = (self.machine.get("ip") or "").strip()
+        return ip, settings.cmss_desktop_default_port
+
+    async def _cmss_desktop_loop(self) -> None:
+        """周期性尝试 CMSS 桌面层连接（ZTEC + TLS + cs_suOperDesktop）。
+
+        失败仅打 warning + add_log；不影响主流程。
+        间隔由 forever_cmss_desktop_interval_sec 控制（默认 10min）。
+
+        ⚠️ 已知限制（截至 2026-05-18）：
+        - ZTEC AuthPacket 里的 RSA token 明文格式是推测，首次握手大概率被服务端拒绝
+        - CMSS 桌面服务器地址来源未明（machine.ip 是私网地址，不通；真实地址需要服
+          务端下发，可能在 cs_sysConfig.action 响应里）
+        - 即使握手成功，TLS 升级后的 cs_suOperDesktop.action 也可能 param 字段格式不对
+        """
+        settings = get_settings()
+        # 启动后先等一会
+        try:
+            await asyncio.wait_for(self._stopping.wait(), timeout=60.0)
+            return
+        except asyncio.TimeoutError:
+            pass
+
+        while not self._stopping.is_set():
+            try:
+                await self._attempt_cmss_desktop()
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:
+                log.warning("[%s/%s] CMSS desktop loop error: %s",
+                            self.rt.account_name, self.machine_name, e)
+
+            try:
+                await asyncio.wait_for(
+                    self._stopping.wait(),
+                    timeout=settings.forever_cmss_desktop_interval_sec,
+                )
+                return
+            except asyncio.TimeoutError:
+                continue
+
+    async def _attempt_cmss_desktop(self) -> None:
+        """执行一次 CMSS 桌面层尝试（ZTEC 握手 + TLS + cs_suOperDesktop）。
+
+        ⚠️ 当前仅能完成 ZTEC frame 116 + 124 阶段。
+        Frame 125 AuthPacket 的 AES 加密尚未完整还原，预期 ack 失败。
+        """
+        server_ip, server_port = self._resolve_cmss_desktop_endpoint()
+        if not server_ip:
+            log.info("[%s/%s] CMSS desktop skipped: 没有桌面服务器地址",
+                     self.rt.account_name, self.machine_name)
+            return
+
+        vm_id = (self.machine.get("instanceId") or self.machine.get("machineId") or "")
+        if not (isinstance(vm_id, str) and len(vm_id) == 36 and vm_id.count("-") == 4):
+            log.info("[%s/%s] CMSS desktop skipped: machineId 不是 UUID 格式 (%s)",
+                     self.rt.account_name, self.machine_name, vm_id)
+            return
+
+        company_code = str(self.machine.get("companyCode")
+                           or self.machine.get("originCompanyCode") or "CMSSZTE").upper()
+        if company_code == "CMSS":
+            company_code = "CMSSZTE"
+
+        log.info("[%s/%s] CMSS desktop attempt: server=%s:%d vmId=%s",
+                 self.rt.account_name, self.machine_name,
+                 server_ip, server_port, vm_id)
+
+        # 构造 cag_param（⚠️ username/password 是占位 — 真实内容来源待反编 libvdconn）
+        try:
+            cag_param = CagParam.from_machine_connect(
+                server_ipv6=server_ip,
+                vm_id=vm_id,
+                spice_proxy_port=5100,           # 客户端 SPICE proxy 监听端口
+                guest_user="",                    # ⚠️ 待补
+                guest_password="",                # ⚠️ 待补
+            )
+        except Exception as e:
+            log.warning("[%s/%s] CMSS cag_param 构造失败: %s",
+                        self.rt.account_name, self.machine_name, e)
+            db.add_log(self.rt.account_id, self.machine_id,
+                       "cmss_desktop", False, f"cag_param: {e!r}"[:200])
+            return
+
+        async with CmssDesktopClient(
+            server_ipv6=server_ip,
+            server_port=server_port,
+            company_code=company_code,
+        ) as cli:
+            result = await cli.connect_and_handshake_only(cag_param)
+
+        status = (
+            f"hello={result.ztec_hello_ok} "
+            f"pong={result.ztec_pong_ok} "
+            f"auth_ack={result.ztec_auth_ok} "
+            f"server_key=0x{result.server_key:08x} "
+            f"duration={result.duration_ms}ms "
+            f"sent={result.bytes_sent}B recv={result.bytes_received}B"
+        )
+        if result.ztec_auth_ok:
+            log.info("[%s/%s] CMSS desktop ZTEC OK (%s)",
+                     self.rt.account_name, self.machine_name, status)
+            db.add_log(self.rt.account_id, self.machine_id,
+                       "cmss_desktop", True, status)
+        else:
+            log.warning("[%s/%s] CMSS desktop ZTEC FAILED: %s (%s)",
+                        self.rt.account_name, self.machine_name,
+                        result.error, status)
+            db.add_log(self.rt.account_id, self.machine_id,
+                       "cmss_desktop", False,
+                       f"{result.error[:120]} | {status}")
+
     # ---------- REST 辅助心跳 ----------
 
     async def _rest_heartbeat_loop(self, client: PCASClient) -> None:
         """每 25 秒并行调一组 REST 保活接口（最佳努力，失败仅记日志）。
 
-        参考 Go 项目 keepaliveLoop：在 cem stream 长连接外，并行刷一组
+        参考 Node 项目 keep-alive：在 cem stream 长连接外，并行刷一组
         服务端记的"近期活跃"信号。token 失效时触发账号级 refresh。
+
+        关键修正：connectList 用 establish_session 拿到的真实 connectId，
+        不再用 machineId 替代。session/updateSessionStatus 的 loginUid 也用
+        服务端返回的真实值（来自 recordDeviceInfo body.loginUid）。
         """
         settings = get_settings()
         machine_id = self.machine_id
@@ -368,7 +628,6 @@ class MachineRunner:
         last_machine_perf = 0.0
         last_device_perf = 0.0
         last_desktop_status = 0.0
-        login_uid = self.rt.access_ticket[:32] if self.rt.access_ticket else ""
 
         # 启动后等一会，避免握手刚成功就并发刷 REST
         try:
@@ -389,12 +648,21 @@ class MachineRunner:
                 now = time.time()
                 pending: list[Awaitable[Any]] = []
 
-                conn_list = [{
-                    "connectId": machine_id,
-                    "connectStatus": True,
-                    "machineId": machine_id,
-                    "companyCode": self.machine.get("companyCode", "ZTE"),
-                }]
+                # 关键：从 machine 字典里拿真实 connectId（来自 establish_session）
+                connect_id = self.machine.get("connectId") or ""
+                conn_list: list[dict[str, Any]] = []
+                if connect_id:
+                    conn_list.append({
+                        "connectId": connect_id,
+                        "connectStatus": True,
+                        "machineId": machine_id,
+                        "companyCode": self.machine.get("companyCode", "ZTE"),
+                    })
+                # 用服务端确认的 loginUid；回退到 ticket[:32] 仅在尚未建会话时
+                login_uid = (
+                    self.rt.session_ctx.login_uid
+                    or (self.rt.access_ticket[:32] if self.rt.access_ticket else "")
+                )
                 pending.append(client.task_session_heartbeat(
                     login_uid=login_uid,
                     connect_list=conn_list,
@@ -676,6 +944,12 @@ class KeepAliveService:
             client.access_token = rt.access_token  # ensure freshest token
             client.access_ticket = rt.access_ticket
             rt.cem_host, rt.cem_port = await resolve_cem_endpoint(client)
+
+            # 3. 建立 cem-webapi 会话（recordDeviceInfo + machineConnect）
+            #    对齐 Node 项目 establishSessionConnection — 服务端把后续 REST 心跳和
+            #    pushConnectEventData connect.result 绑定到这个 connectId 上。
+            rt.session_ctx = make_session_context(seed=rt.mobile)
+            await self._establish_sessions_for_running_machines(rt, client)
         finally:
             await client.close()
 
@@ -949,24 +1223,66 @@ class KeepAliveService:
                        f"all failed: {errs}")
 
     async def _refresh_machines_with_retry(self, rt: AccountRuntime) -> None:
-        """刷新机器列表；token 失效时自动刷新 + 重试一次。"""
+        """刷新机器列表；token 失效时自动刷新 + 重试一次。
+
+        刷新后会重新对所有 running 机器调 establish_session（拿新 connectId），
+        因为 reconcile 后 runner 需要新的 connectId 才能正确做 REST 心跳。
+        """
         client = self._make_client(rt)
         try:
             try:
                 machines = await client.get_device_info_list()
                 rt.machines = machines
-                return
             except PCASError as e:
                 if not PCASClient.is_auth_failure(e):
                     raise
-            # token 失效 → 刷新后重试
-            log.info("[%s] machine list auth failed, refreshing token...", rt.account_name)
-            if await self._refresh_account_token(rt):
-                client.access_token = rt.access_token
-                client.access_ticket = rt.access_ticket
-                rt.machines = await client.get_device_info_list()
+                # token 失效 → 刷新后重试
+                log.info("[%s] machine list auth failed, refreshing token...", rt.account_name)
+                if await self._refresh_account_token(rt):
+                    client.access_token = rt.access_token
+                    client.access_ticket = rt.access_ticket
+                    rt.machines = await client.get_device_info_list()
+                else:
+                    raise
+
+            # 机器列表刷新后，重新做一遍 establish_session（拿新 connectId）。
+            # forever 模式下 reconcile 会用到 m["connectId"] 构造 REST 心跳的 connectList。
+            await self._establish_sessions_for_running_machines(rt, client)
         finally:
             await client.close()
+
+    async def _establish_sessions_for_running_machines(
+        self, rt: AccountRuntime, client: PCASClient,
+    ) -> None:
+        """对账号下所有 running 机器调 establish_session 拿 connectId。
+
+        失败的机器 connectId 留空，后续 REST 心跳的 connectList 会自动剔除它。
+        这个方法只用于建立 cem-webapi 业务层会话；真实桌面流走 SPICE/VDP 是另一层。
+        """
+        for m in rt.machines:
+            if not _is_machine_running(m):
+                continue
+            mid = m.get("machineId") or m.get("instanceId") or ""
+            mname = m.get("machineName") or mid
+            try:
+                res = await client.establish_session(m, rt.session_ctx)
+                if res["ok"]:
+                    log.info("[%s/%s] establish_session ok: connectId=%s",
+                             rt.account_name, mname, res["connectId"][:12])
+                    db.add_log(rt.account_id, mid, "establish_session", True,
+                               f"loginUid={res['loginUid'][:12]} connectId={res['connectId'][:12]}")
+                    rt.session_ctx.session_connect_ok = True
+                    rt.session_ctx.session_connect_error = ""
+                else:
+                    log.warning("[%s/%s] establish_session failed: %s",
+                                rt.account_name, mname, res["error"])
+                    db.add_log(rt.account_id, mid, "establish_session", False, res["error"])
+                    rt.session_ctx.session_connect_ok = False
+                    rt.session_ctx.session_connect_error = res["error"]
+            except Exception as e:
+                log.warning("[%s/%s] establish_session crashed: %s",
+                            rt.account_name, mname, e)
+                db.add_log(rt.account_id, mid, "establish_session", False, repr(e)[:200])
 
     def _get_device_uid(self, rt: AccountRuntime) -> str:
         """获取本账号绑定的稳定 deviceId（与登录时一致）。"""

@@ -49,6 +49,14 @@ class Settings(BaseSettings):
     forever_reconnect_max_backoff_sec: float = 60.0
     forever_machine_refresh_interval_sec: int = 300  # 5min 重拉机器列表 reconcile runners
 
+    # CMSS / ZTE 桌面层模拟（实验性）
+    # 启用后会对 companyCode=CMSS/ZTE 的机器尝试 ZTEC 握手 + TLS + cs_suOperDesktop。
+    # ⚠️ 当前 RSA token 明文格式仍是推测（dylib 未完整反编），首次握手大概率被服务端拒绝。
+    # 默认关闭；启用前请先看 docs/CMSS_DESKTOP_PROTOCOL.md §7 已知限制。
+    forever_enable_cmss_desktop: bool = False
+    forever_cmss_desktop_interval_sec: int = 600    # 重试间隔（10min）
+    cmss_desktop_default_port: int = 8899
+
 
 @lru_cache
 def get_settings() -> Settings:

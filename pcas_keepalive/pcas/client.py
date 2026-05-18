@@ -16,6 +16,8 @@ import json
 import logging
 import time
 import uuid
+from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from typing import Any, Awaitable, Callable
 
 import httpx
@@ -36,6 +38,28 @@ from .crypto import decrypt_to_json, encrypt_json, get_device_info
 from .sign import build_signed_url
 
 log = logging.getLogger("pcas.client")
+
+
+def _iso_utc_now() -> str:
+    """RFC3339/ISO8601 UTC 时间戳（毫秒精度），对齐 Node 端 new Date().toISOString() 格式。"""
+    now = datetime.now(timezone.utc)
+    return f"{now.strftime('%Y-%m-%dT%H:%M:%S')}.{now.microsecond // 1000:03d}Z"
+
+
+@dataclass
+class SessionContext:
+    """账号级会话上下文 — 对齐 Node 项目 commonParams。
+
+    每个账号一份。machineId 在 connectList 里区分多桌面（同 Node 项目模型）。
+    """
+    login_uuid: str = ""           # 客户端生成（UUID v4）— pcas_app loginUuid
+    session_id: str = ""           # 客户端生成（种子扰动）— pcas_app sessionId
+    client_login_uid: str = ""     # 同 login_uuid（Node 项目重复字段，保持对齐）
+    client_connect_id: str = ""    # 同 session_id（Node 项目重复字段，保持对齐）
+    login_uid: str = ""            # /login/recordDeviceInfo 返回的服务端 loginUid
+    session_started_at: str = ""   # ISO 时间戳，cem stream 握手或 connect.result 上报时记录
+    session_connect_ok: bool = False
+    session_connect_error: str = ""
 
 
 class PCASError(Exception):
@@ -82,6 +106,21 @@ def create_official_session_context(machine_id: str) -> dict[str, str]:
         "clientLoginUid": login_uuid,
         "clientConnectId": session_id,
     }
+
+
+def make_session_context(seed: str = "") -> SessionContext:
+    """构造一个 SessionContext（loginUuid / sessionId / clientLoginUid / clientConnectId）。
+
+    Args:
+        seed: 用作 sessionId 生成种子；通常传 machineId（多机器场景）或空字符串。
+    """
+    raw = create_official_session_context(seed)
+    return SessionContext(
+        login_uuid=raw["loginUuid"],
+        session_id=raw["sessionId"],
+        client_login_uid=raw["clientLoginUid"],
+        client_connect_id=raw["clientConnectId"],
+    )
 
 
 def pick_connect_target(machines: list[dict]) -> dict | None:
@@ -566,6 +605,178 @@ class PCASClient:
         if extra:
             body.update(extra)
         return await self._post(EP.MACHINE_PUSH_CONNECT_EVENT, body)
+
+    async def push_connect_event_cloud(
+        self,
+        machine: dict[str, Any],
+        session_ctx: "SessionContext",
+        event_type: str = "connect.result",
+        *,
+        connect_method: str = "manual",
+        disconnect_method: str = "",
+        error_code: str = "",
+        error_msg: str = "",
+    ) -> dict[str, Any]:
+        """CloudEvents 1.0 格式的 pushConnectEventData 上报（对齐 Node 项目 buildConnectEventParams）。
+
+        服务端把这个事件当成"H3C 桌面客户端"真实建连/断开的上报。Node 项目实测：
+        machineConnect 拿到 connectId 后，每个 keepalive 周期再发一次 connect.result，
+        服务端就把后续 REST 心跳视为"用户已建立桌面会话"。
+
+        Args:
+            machine: 机器字典（至少含 machineId/machineName/companyCode）
+            session_ctx: 账号级会话上下文（含 loginUuid/sessionId/clientConnectId 等）
+            event_type: "connect.result" / "connect.failure"
+            connect_method: 默认 "manual"（手动点击连接）
+            disconnect_method: connect.failure 时的断开方式（"error"/"user"）
+            error_code: connect.failure 时的错误码
+            error_msg: connect.failure 时的错误信息
+
+        Returns:
+            服务端响应 envelope（errorCode != '200' 时由 _post 返回但不抛异常）
+        """
+        device = get_device_info(self.account_name or "")
+        machine_id = (
+            machine.get("connectMachineId")
+            or machine.get("instanceId")
+            or machine.get("machineId")
+            or ""
+        )
+        connect_id = machine.get("connectId") or ""
+        company_code = machine.get("companyCode") or machine.get("originCompanyCode") or ""
+        resource_pool_uid = machine.get("resourcePoolUid") or ""
+
+        # connect.result 必须有真实 connectId（Node 项目硬约束）
+        if event_type == "connect.result" and not connect_id:
+            raise PCASError("no_connect_id",
+                            "connect.result 需要 connectId，但 machineConnect 未成功")
+
+        default_disconnect = "" if event_type == "connect.result" else (disconnect_method or "")
+        default_err_code = "" if event_type == "connect.failure" else "0"
+
+        payload = {
+            "accessToken": self.access_token,
+            "id": session_ctx.client_connect_id or str(uuid.uuid4()),
+            "source": "common",
+            "specversion": "1.0",
+            "type": event_type,
+            "datacontenttype": "application/json",
+            "time": _iso_utc_now(),
+            "data": {
+                "machineId": machine_id,
+                "sessionId": session_ctx.session_id,
+                "loginId": session_ctx.login_uuid,
+                "clientConnectId": session_ctx.client_connect_id,
+                "connectId": connect_id,
+                "companyCode": company_code,
+                "resourcePoolUid": resource_pool_uid,
+                "startTime": session_ctx.session_started_at or _iso_utc_now(),
+                "connectMethod": connect_method,
+                "disconnectMethod": default_disconnect,
+                "errorCode": error_code or default_err_code,
+                "errorMsg": error_msg,
+                "clientType": device.get("clientType", "pc_windows"),
+                "clientVersion": device.get("clientVersion", APP_VERSION_NAME),
+                "clientIp": device.get("ipAddress", ""),
+                "clientIpLocation": "",
+                "clientNetworkType": "",
+                "deviceId": device.get("deviceUid", ""),
+                "deviceType": device.get("deviceType", "pc"),
+                "deviceSource": "common",
+                "deviceOSType": device.get("clientType", "pc_windows"),
+                "deviceOSVersion": (
+                    device.get("operatingVersion")
+                    or device.get("deviceSystem")
+                    or "Windows 10"
+                ),
+                "sdkVersion": device.get("clientVersion", APP_VERSION_NAME),
+            },
+        }
+        return await self._post(EP.MACHINE_PUSH_CONNECT_EVENT, payload)
+
+    async def establish_session(
+        self,
+        machine: dict[str, Any],
+        session_ctx: "SessionContext",
+    ) -> dict[str, Any]:
+        """对齐 Node 项目 establishSessionConnection：recordDeviceInfo + machineConnect。
+
+        成功后会把 connectId 写入 machine 字典（in-place 更新），并填充 session_ctx
+        的 login_uid 字段。
+
+        Args:
+            machine: 一台 running 机器的字典（必须含 machineId/machineName）
+            session_ctx: 账号级会话上下文（会被 in-place 更新 login_uid 字段）
+
+        Returns:
+            { "loginUid": str, "connectId": str, "ok": bool, "error": str }
+            ok=False 时 connectId 为空但 loginUid 可能仍有效
+        """
+        machine_id = (
+            machine.get("connectMachineId")
+            or machine.get("instanceId")
+            or machine.get("machineId")
+            or ""
+        )
+        machine_name = machine.get("machineName") or ""
+
+        # Step 1: recordDeviceInfo 拿服务端确认的 loginUid
+        try:
+            rec = await self._post_ok(EP.LOGIN_RECORD_DEVICE, {
+                "accessToken": self.access_token,
+                "clientLoginUid": session_ctx.client_login_uid,
+            })
+            login_uid = (rec.get("body") or {}).get("loginUid", "")
+            if not login_uid:
+                return {
+                    "loginUid": "",
+                    "connectId": "",
+                    "ok": False,
+                    "error": "recordDeviceInfo 未返回 loginUid",
+                }
+            session_ctx.login_uid = login_uid
+        except PCASError as e:
+            return {
+                "loginUid": "",
+                "connectId": "",
+                "ok": False,
+                "error": f"recordDeviceInfo 失败: {e.msg}",
+            }
+
+        # Step 2: machineConnect 拿 connectId（关键！）
+        try:
+            conn = await self._post_ok(EP.SESSION_MACHINE_CONNECT, {
+                "ticket": self.access_ticket,
+                "accessToken": self.access_token,
+                "machineId": machine_id,
+                "machineName": machine_name,
+                "status": "success",
+                "flag": True,
+                "clientConnectId": session_ctx.client_connect_id,
+                "clientLoginUid": session_ctx.client_login_uid,
+            })
+            connect_id = (conn.get("body") or {}).get("connectId", "")
+            if not connect_id:
+                return {
+                    "loginUid": login_uid,
+                    "connectId": "",
+                    "ok": False,
+                    "error": "machineConnect 未返回 connectId",
+                }
+            machine["connectId"] = connect_id
+            return {
+                "loginUid": login_uid,
+                "connectId": connect_id,
+                "ok": True,
+                "error": "",
+            }
+        except PCASError as e:
+            return {
+                "loginUid": login_uid,
+                "connectId": "",
+                "ok": False,
+                "error": f"machineConnect 失败: {e.msg}",
+            }
 
     async def get_sys_config(self, config_type: str) -> dict[str, Any]:
         """按 key 拉单个系统配置项（如 DEVICE_PERFORMANCE_PERIOD）。
