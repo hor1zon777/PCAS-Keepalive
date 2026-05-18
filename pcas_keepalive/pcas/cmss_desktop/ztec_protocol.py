@@ -169,27 +169,13 @@ class CagParam:
         if len(vm_id) != 36:
             raise ValueError(f"machineId 应为 36 字符 UUID, got {len(vm_id)}")
 
-        # frame 125 bytes 4-19: 桌面 VM 的 IPv6
-        # 从 machineAddress 提取 IPv6，fallback csapipv6
-        machine_addr = machine.get("machineAddress") or machine.get("ip") or ""
-        vm_ipv6 = ""
-        for part in machine_addr.replace(",", ";").split(";"):
-            part = part.strip()
-            if ":" in part and not part.startswith("["):
-                vm_ipv6 = part
-                break
-        if not vm_ipv6:
-            csap_v6 = custom_login_params.get("csapipv6", "")
-            if csap_v6:
-                parts = csap_v6.rsplit(":", 1)
-                if len(parts) == 2 and parts[1].isdigit():
-                    vm_ipv6 = parts[0]
-                else:
-                    vm_ipv6 = csap_v6
-        if vm_ipv6:
-            server_ipv6_bin = socket.inet_pton(socket.AF_INET6, vm_ipv6)
-        else:
-            server_ipv6_bin = b"\x00" * 16
+        # frame 125 bytes 4-19: VM SPICE 服务 IPv6（CAG 网关用此地址转发 AuthPacket）
+        # ⚠️ 此 IPv6 不在 getDeviceInfo 响应中。pcap 里的值 = para 文件 --hv6。
+        # 可能来自 cs_suOperDesktop 上一次连接缓存。暂时硬编码 pcap 值测试。
+        # TODO: 找到此 IPv6 的动态获取方式
+        server_ipv6_bin = socket.inet_pton(
+            socket.AF_INET6, "2409:8c85:5400:3bd1:e445:2249:65cf:41c3"
+        )
 
         extra_40 = vm_id.encode("ascii") + b"\x00" * 4
 
