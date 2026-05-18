@@ -159,7 +159,7 @@ class CmssDesktopClient:
         await self._writer.drain()
         log.info("[ztec] -> AuthPacket (%dB)", len(auth_pkt))
 
-        ack = await asyncio.wait_for(self._reader.readexactly(36), timeout=10)
+        ack = await asyncio.wait_for(self._reader.readexactly(36), timeout=5)
         ack_info = decode_ztec_ack(ack)
         log.info("[ztec] <- ack (status=%d)", ack_info["status"])
         if not ack_info["is_ok"]:
@@ -318,13 +318,14 @@ class CmssDesktopClient:
                     finally:
                         await client.close()
 
-                except OSError as e:
-                    last_error = f"{cag_addr}:{cag_port} -> {e}"
-                    log.info("[ztec] %s 连接失败，尝试下一个网关: %s", cag_addr, e)
+                except (OSError, asyncio.TimeoutError) as e:
+                    err_msg = str(e) or type(e).__name__
+                    last_error = f"{cag_addr}:{cag_port} -> {err_msg}"
+                    log.info("[ztec] %s 失败，尝试下一个: %s", cag_addr, err_msg)
                     continue
                 except Exception as e:
                     last_error = f"{cag_addr}:{cag_port} -> {e}"
-                    log.warning("[ztec] %s 握手失败: %s", cag_addr, e)
+                    log.warning("[ztec] %s 握手异常: %s", cag_addr, e)
                     continue
             else:
                 # 所有网关都失败

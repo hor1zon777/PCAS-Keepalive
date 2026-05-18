@@ -158,30 +158,41 @@ class CagParam:
     ) -> "CagParam":
         """从 cem-webapi getDeviceInfo 响应构造。
 
-        Args:
-            machine: machineList[i] 字典
-            custom_login_params: JSON.parse(machine["customLoginParams"])
-            ad_user: machine["adUser"] ("Admin")
-            ad_password_plaintext: SDK AES 解密 machine["adPassword"] 后的明文 ("R6-FSxlf")
-            cag_index: 选 cagList 里哪个 CAG 网关（默认 0）
+        frame 125 bytes 4-19 是桌面 VM 的 IPv6 地址（不是 CAG 网关地址！）
+        来源：machineAddress 字段的 IPv6 部分 或 customLoginParams.csapipv6。
         """
         cag_list = custom_login_params.get("cagList", [])
         if not cag_list:
             raise ValueError("customLoginParams.cagList 为空")
-        cag = cag_list[min(cag_index, len(cag_list) - 1)]
-
-        cag_addr = cag["addr"]
-        cag_port = cag.get("port", 8899)
 
         vm_id = machine.get("machineId", "")
         if len(vm_id) != 36:
             raise ValueError(f"machineId 应为 36 字符 UUID, got {len(vm_id)}")
 
-        is_ipv6 = ":" in cag_addr
-        if is_ipv6:
-            server_ipv6_bin = socket.inet_pton(socket.AF_INET6, cag_addr)
+        # frame 125 bytes 4-19: 桌面 VM 的 IPv6（不是 CAG 网关）
+        # 优先从 machineAddress 里提取 IPv6
+        machine_addr = machine.get("machineAddress") or machine.get("ip") or ""
+        vm_ipv6 = ""
+        for part in machine_addr.replace(",", ";").split(";"):
+            part = part.strip()
+            if ":" in part and not part.startswith("["):
+                vm_ipv6 = part
+                break
+        # fallback: customLoginParams.csapipv6 (去掉端口)
+        if not vm_ipv6:
+            csap_v6 = custom_login_params.get("csapipv6", "")
+            if csap_v6:
+                # "2409:...:30087" → 去掉末尾端口号
+                parts = csap_v6.rsplit(":", 1)
+                if len(parts) == 2 and parts[1].isdigit():
+                    vm_ipv6 = parts[0]
+                else:
+                    vm_ipv6 = csap_v6
+
+        if vm_ipv6:
+            server_ipv6_bin = socket.inet_pton(socket.AF_INET6, vm_ipv6)
         else:
-            server_ipv6_bin = socket.inet_pton(socket.AF_INET, cag_addr).ljust(16, b"\x00")
+            server_ipv6_bin = b"\x00" * 16
 
         extra_40 = vm_id.encode("ascii") + b"\x00" * 4
 
