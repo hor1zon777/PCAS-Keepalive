@@ -259,6 +259,15 @@ def decode_ztec_ack(frame: bytes) -> dict:
     return {"status": status, "is_ok": status == 200, "raw_hex": frame.hex()}
 
 
+def encode_ztec_cmd_post_auth() -> bytes:
+    """frame 135 — ack 后、TLS 前的 116 字节 cmd 帧。pcap 字节级验证通过。"""
+    buf = bytearray(116)
+    struct.pack_into("<Q", buf, 0, 1)         # cmd = 1
+    struct.pack_into("<I", buf, 8, 0xea9f)    # sub-field
+    struct.pack_into("<I", buf, 12, 2)        # sub-cmd = 2
+    return bytes(buf)
+
+
 def build_http_connect_request(target_host: str, target_port: int) -> bytes:
     is_ipv6 = ":" in target_host
     host_str = f"[{target_host}]:{target_port}" if is_ipv6 else f"{target_host}:{target_port}"

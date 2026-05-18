@@ -168,6 +168,13 @@ class CmssDesktopClient:
         if not ack_info["is_ok"]:
             raise RuntimeError(f"ZTEC ack status={ack_info['status']} (expected 200)")
 
+        # frame 135: ZTEC cmd 帧（pcap 实测：ack 后、TLS 前必须发这个）
+        from .ztec_protocol import encode_ztec_cmd_post_auth
+        cmd = encode_ztec_cmd_post_auth()
+        self._writer.write(cmd)
+        await self._writer.drain()
+        log.info("[ztec] -> cmd (%dB)", len(cmd))
+
         return client_key, pong_info.server_key
 
     async def tls_upgrade(self) -> None:
