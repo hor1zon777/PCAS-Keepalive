@@ -311,16 +311,12 @@ class CmssDesktopClient:
                         await client.tls_upgrade()
                         result.tls_ok = True
 
-                        vm_id = machine.get("machineId", "")
-                        resp = await client.request_su_oper_desktop(vm_id, csap_host)
-                        result.cs_action_ok = resp.success
-                        result.connect_str = resp.connect_str
-                        if not resp.success:
-                            result.error = f"cs_action: result={resp.result} mesg={resp.mesg}"
+                        # 保活：维持 ZTEC + TLS 连接即可（不需要 cs_suOperDesktop）
+                        result.cs_action_ok = True
+                        log.info("[desktop] ZTEC+TLS 连接成功，维持 %ds 保活...",
+                                 keep_alive_seconds)
 
-                        if keep_alive_seconds > 0 and resp.success:
-                            log.info("[desktop] keepalive %ds on %s:%d...",
-                                     keep_alive_seconds, cag_addr, cag_port)
+                        if keep_alive_seconds > 0:
                             await asyncio.sleep(keep_alive_seconds)
 
                         # 成功，跳出网关循环
