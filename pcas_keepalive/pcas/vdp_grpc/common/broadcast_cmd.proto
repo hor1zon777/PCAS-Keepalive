@@ -1,0 +1,9 @@
+syntax = "proto3";
+package common;
+
+message FileOrCommandDissenminateMsg {
+  string requestUuid = 1;
+  string cmd = 2;
+  string url = 3;
+  string downloadFileName = 4;
+}

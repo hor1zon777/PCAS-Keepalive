@@ -1,0 +1,1871 @@
+syntax = "proto3";
+package client;
+
+import "google/protobuf/empty.proto";
+import "common/error_data.proto";
+import "common/common_messages.proto";
+
+message PreCheckResp {
+  string tmp_path = 1;
+  int64 tmp_dir_available = 2;
+  string image_path = 3;
+  int64 image_dir_available = 4;
+  int32 image_dir_status = 5;
+  int32 image_dir_type = 6;
+  string image_dir_type_name = 7;
+  string protocol = 8;
+  string port_status = 9;
+  string port = 10;
+  common.ErrorData error = 11;
+}
+
+message RdpPortResp {
+  int32 port = 1;
+  common.ErrorData error = 2;
+}
+
+message ClientMonitorPolicyReq {
+  string device_id = 1;
+}
+
+message ClientMonitorPolicyResp {
+  int32 enable = 1;
+  int32 timeInterval = 2;
+  common.ErrorData error = 3;
+}
+
+message ClientMonitorResult {
+  string device_id = 1;
+  double packetLossRate = 2;
+  double delay = 3;
+  double internetSpeed = 4;
+  int32 experience = 5;
+  string experienceStr = 6;
+  string uuid = 7;
+  int32 computerType = 8;
+}
+
+message KeyEventReq {
+  message MacIpEntry {
+    string key = 1;
+    string value = 2;
+  }
+  repeated client.KeyEventReq.MacIpEntry macIp = 1;
+  string device_id = 2;
+  int32 computer_type = 3;
+  int32 event_type = 4;
+  int64 execution_time = 5;
+  string login_name = 6;
+  string domain = 7;
+  string event_description = 8;
+}
+
+message BindRemoteAccessReq {
+  string device_id = 1;
+  string username = 2;
+  string domain = 3;
+}
+
+message UnbindRemoteAccessReq {
+  string device_id = 1;
+}
+
+message LoginWorkspaceOnShareTerminalReq {
+  string device_id = 1;
+  string userName = 2;
+  string password = 3;
+}
+
+message RegisterShareTerminalReq {
+  string device_id = 1;
+  string terminal_share_name = 2;
+  bool register_type = 3;
+}
+
+message TransDeskToShareTerminalReq {
+  string device_id = 1;
+  string vm_uuid = 2;
+  string dst_device_id = 3;
+  bytes vdp_file_data = 4;
+}
+
+message ShareTerminalInfoReq {
+  string device_id = 1;
+}
+
+message ShareTerminalInfo {
+  string device_id = 1;
+  string terminal_share_name = 2;
+}
+
+message ShareTerminalInfoResp {
+  common.ErrorData error = 1;
+  repeated client.ShareTerminalInfo terminal_list = 2;
+}
+
+message onekeyHelpUploadReq {
+  bytes Content = 1;
+  client.onekeyHelpUploadReqMeta onekeyHelpUploadReqMeta = 2;
+}
+
+message onekeyHelpUploadReqMeta {
+  int64 taskId = 1;
+  string fileName = 2;
+  string fileType = 3;
+}
+
+message onekeyHelpUploadResp {
+  int32 code = 1;
+  common.ErrorData error = 2;
+}
+
+message DeviceConfigInfoReq {
+  string ip = 1;
+  string mac = 2;
+  string deviceId = 3;
+}
+
+message DeviceConfigInfoResp {
+  int32 authType = 1;
+  string spareIp = 2;
+  common.ErrorData error = 3;
+  string serverArch = 4;
+  int32 displayType = 5;
+  bool rememberPassword = 6;
+  string outId = 7;
+  bool enable_screen_shot = 8;
+  int32 countdown_time = 9;
+  string peripheral_strategy_config = 10;
+  bool auto_change_connect = 11;
+  int32 auto_change_connect_count = 12;
+  bool enable_forced_timeout_logout = 13;
+  int32 timeout_logout_time = 14;
+}
+
+message CheckPasswordReq {
+  client.ClientBaseInfo client_base_info = 1;
+}
+
+message CheckPasswordResp {
+  common.ErrorData error = 1;
+  int64 user_id = 2;
+  string username = 3;
+}
+
+message ApplyForDeviceInfoReq {
+  client.ClientBaseInfo client_base_info = 1;
+}
+
+message ApplyForDeviceInfoResp {
+  repeated client.Device device_list = 1;
+  common.ErrorData error = 2;
+}
+
+message DeviceExistedResp {
+  bool deviceExisted = 1;
+  common.ErrorData error = 2;
+}
+
+message ApplyForEmailResp {
+  string serverAddress = 1;
+  string serverPort = 2;
+  string sendName = 3;
+  string sendEmail = 4;
+  string authName = 5;
+  string authPaw = 6;
+  common.ErrorData error = 7;
+}
+
+message ApplyForVmReq {
+  client.ClientBaseInfo client_base_info = 1;
+  int64 id = 2;
+  string pool_name = 3;
+  string port = 4;
+  int32 start_domain = 5;
+  bool token_flag = 6;
+}
+
+message ApplyForVmResp {
+  client.VmInfo vm = 1;
+  string name = 2;
+  string password = 3;
+  string host_ip = 4;
+  repeated string host_ips = 5;
+  string spice_password = 6;
+  string user_group = 7;
+  common.ErrorData error = 8;
+  string userNameOrDeviceName = 9;
+  repeated string grouplist = 10;
+  int64 auth_stg_id = 11;
+  string enableUpmPolicy = 12;
+  string token = 13;
+}
+
+message ClientReleasePasswordReq {
+  int32 clientType = 1;
+}
+
+message ClientReleasePasswordResp {
+  string password = 1;
+  int32 enable = 2;
+  common.ErrorData error = 3;
+}
+
+message HeartbeatReq {
+  string vm_ip = 1;
+  client.ClientBaseInfo client_base_info = 2;
+  client.ClientExtendInfo client_extend_info = 3;
+}
+
+message HeartbeatResp {
+  common.ErrorData error = 1;
+}
+
+message LoginReq {
+  client.ClientBaseInfo client_base_info = 1;
+  client.ClientExtendInfo client_extend_info = 2;
+  client.ZeroTrustInfo zeroTrustInfo = 3;
+}
+
+message LoginConfigReq {
+  string deviceUuid = 1;
+}
+
+message LoginConfigResp {
+  bool enableThirdPartyLogin = 1;
+  bool enableWechatEnterpriseLogin = 2;
+  bool enableDingtalkLogin = 3;
+  bool enableFaceLogin = 4;
+  bool enableSmsLogin = 5;
+  string ticket = 6;
+  string url = 7;
+  int64 timeout = 8;
+  string workspaceIp = 9;
+  common.ErrorData error = 10;
+  bool enableSimLogin = 11;
+  bool enableJjtLogin = 12;
+  bool enableWechatLogin = 13;
+  bool enableSmsVerifyCodeLogin = 14;
+  bool enableRadiusDynaToken = 15;
+  string radiusPwdType = 16;
+  bool enableRegisterUserWithWechatOpen = 17;
+  bool enableNatrotechFpLogin = 18;
+}
+
+message CodeReq {
+  client.ClientBaseInfo client_base_info = 1;
+  client.ClientExtendInfo client_extend_info = 2;
+  string codeSource = 3;
+  string codeType = 4;
+  string username = 5;
+  string phone = 6;
+  bool doubleQrCodeAuth = 7;
+  int32 scanType = 8;
+  bool isVm = 9;
+}
+
+message CodeResp {
+  string codeSource = 1;
+  string codeType = 2;
+  string qrcodeUrl = 3;
+  string ticket = 4;
+  common.ErrorData error = 5;
+  int64 validTime = 6;
+}
+
+message UserOpenId {
+  common.ErrorData error = 1;
+  string openId = 2;
+  string ticket = 3;
+  bool isVm = 4;
+}
+
+message UnbindThirdPartyReq {
+  int64 userId = 1;
+  string codeSource = 2;
+}
+
+message UnbindThirdPartyResp {
+  common.ErrorData error = 1;
+}
+
+message NotifySMSVerifyCodeReq {
+  string phone = 1;
+  client.ClientExtendInfo client_extend_info = 2;
+}
+
+message NotifySMSVerifyCodeResp {
+  string phone = 1;
+  bool sendSms = 2;
+  common.ErrorData error = 3;
+}
+
+message SMSVerifyReq {
+  string phone = 1;
+  string verifyCode = 2;
+}
+
+message SMSVerifyResp {
+  string phone = 1;
+  string verifycode = 2;
+  string userName = 3;
+  string userLoginName = 4;
+  string userPassword = 5;
+  int64 userType = 6;
+  common.ErrorData error = 7;
+}
+
+message QueryUserInfoReq {
+  int64 userId = 1;
+}
+
+message QueryUserInfoResp {
+  int64 userId = 1;
+  repeated client.ThirdPartyUser thirdPartyUser = 2;
+  string loginName = 3;
+  string userName = 4;
+  string credentialNumber = 5;
+  string phone = 6;
+  string email = 7;
+  string address = 8;
+  string description = 9;
+  string photo = 10;
+  string department = 11;
+  common.ErrorData error = 12;
+}
+
+message ThirdPartyUser {
+  string userCode = 1;
+  string username = 2;
+  string codeSource = 3;
+}
+
+message ModifyUserInfoReq {
+  int64 userId = 1;
+  string userName = 2;
+  string credentialNumber = 3;
+  string phone = 4;
+  string email = 5;
+  string address = 6;
+  string description = 7;
+  string photo = 8;
+  string department = 9;
+}
+
+message ModifyUserInfoResp {
+  common.ErrorData error = 1;
+}
+
+message BindWechatResp {
+  common.ErrorData error = 1;
+}
+
+message LoginResp {
+  string domain = 1;
+  string netBIOS = 2;
+  int32 update_interval = 3;
+  int32 start_timeout = 4;
+  repeated client.PoolInfo pool_list = 5;
+  int32 auth_type = 6;
+  string name = 7;
+  string password = 8;
+  int64 due_date = 9;
+  int64 user_expire_time = 10;
+  common.ErrorData error = 11;
+  int32 smsAuthIsReLogin = 12;
+  int32 smsTimout = 13;
+  int64 user_id = 14;
+  common_message.IdvUSBPolicy idvUsbPolicy = 15;
+  int32 isOpenldap = 16;
+  repeated int64 userGroupId = 17;
+  client.WebAppSet web_app_set = 18;
+  int32 use_gateway = 19;
+  string headShot = 20;
+  repeated client.PoolInfo ex_pool_list = 21;
+  string userLoginName = 22;
+  string userPassword = 23;
+  bool spmIdBinding = 24;
+  string phone = 25;
+  bool isEnabledGoogleAuthen = 26;
+  bool isFirstGoogleAuthen = 27;
+  string googleSecretKey = 28;
+  string googleSecretKeyQrCodeUrl = 29;
+  bool googleAuthenPass = 30;
+  bool canBindRemote = 31;
+  int32 occupySeatType = 32;
+  bool through_gateway = 33;
+  string athenaPort = 34;
+  string labmgtPort = 35;
+  int64 lockoutTime = 36;
+}
+
+message ModifyPasswordReq {
+  client.ClientBaseInfo client_base_info = 1;
+  string password_new = 2;
+}
+
+message ModifyPasswordResp {
+  common.ErrorData error = 1;
+}
+
+message ModifyVmNameReq {
+  string vm_name_new = 1;
+  client.ClientBaseInfo client_base_info = 2;
+}
+
+message ModifyVmNameResp {
+  common.ErrorData error = 1;
+}
+
+message OperateForVmReq {
+  client.ClientBaseInfo client_base_info = 1;
+  int32 op_type = 2;
+  int32 force_flag = 3;
+  string port = 4;
+  int32 start_domain = 6;
+  string token = 7;
+}
+
+message OperateForVmResp {
+  client.VmInfo vm = 1;
+  string spice_port = 2;
+  string hostIp = 3;
+  common.ErrorData error = 4;
+  string gatewayToken = 5;
+  string tlsPort = 6;
+  int32 isUsedGateway = 7;
+  string rdpPort = 8;
+  int32 fatTerminalStatus = 9;
+  client.ClientLoginInfo client_login_info = 10;
+}
+
+message RecoverVmResp {
+  int64 vm_id = 1;
+  int32 progress = 2;
+  common.ErrorData error = 3;
+  string vmUuid = 4;
+}
+
+message RegisterDevReq {
+  string ip = 1;
+  string mac = 2;
+  string device_id = 3;
+  string device_name = 4;
+  client.ClientExtendInfo client_extend_info = 5;
+  int32 register_type = 6;
+  client.ClientBaseInfo client_base_info = 7;
+  string sn = 8;
+}
+
+message DeviceStatsuReq {
+  string deviceId = 1;
+  int32 status = 2;
+}
+
+message RegisterDevResp {
+  common.ErrorData error = 1;
+  int64 register_id = 2;
+}
+
+message TermBootTaskInfoReq {
+  string ip = 1;
+  string mac = 2;
+  string device_id = 3;
+  string device_name = 4;
+  int32 computer_type = 5;
+  string model = 6;
+  string client_version = 7;
+}
+
+message TermBootTaskInfoResp {
+  common.ErrorData error = 1;
+  int64 id = 2;
+  string name = 3;
+  string desc = 4;
+  int32 enable = 5;
+  int32 cycle_type = 6;
+  string action = 7;
+  int32 state = 8;
+  string boot_uuid = 9;
+  int64 update_time = 10;
+}
+
+message TermBootTaskReceiptReq {
+  string ip = 1;
+  string mac = 2;
+  string device_id = 3;
+  string device_name = 4;
+  int32 computer_type = 5;
+  string model = 6;
+  string client_version = 7;
+  int32 state = 8;
+  string errorMsg = 9;
+  string boot_uuid = 10;
+  int64 update_time = 11;
+}
+
+message TermBootTaskReceiptResp {
+  common.ErrorData error = 1;
+  int32 update_result = 2;
+}
+
+message TermDataBackupInfoReq {
+  string device_ip = 1;
+  string device_mac = 2;
+  string device_id = 3;
+  string device_name = 4;
+  int32 computer_type = 5;
+  string model = 6;
+  int64 user_id = 7;
+  string user_name = 8;
+  int32 owner_type = 9;
+  string fileName = 10;
+}
+
+message TermDataBackupInfoResp {
+  common.ErrorData error = 1;
+  repeated client.TermDataBackupFileMsg owned_term_data_bkup_files = 2;
+  repeated client.TermDataBackupFileMsg shared_term_data_bkup_files = 3;
+  string module_name = 4;
+  int32 upload_enable = 5;
+  int32 download_enable = 6;
+  int64 rsync_config_id = 7;
+  int64 host_id = 8;
+  string storage_pool_name = 9;
+  string storage_pool_path = 10;
+  int32 file_max_size = 11;
+  int32 over_max_num = 12;
+  string rsync_port = 13;
+  string gateway_port = 14;
+}
+
+message TermDataBackupFileMsg {
+  int64 id = 1;
+  string fileName = 2;
+  int64 fileSize = 3;
+  int64 fileVirtualSize = 4;
+  int32 fileType = 5;
+  int32 ifSecret = 6;
+  string ownerId = 7;
+  int32 owner_type = 8;
+  string ownerName = 9;
+  int32 computerType = 10;
+  string fromDeviceMac = 11;
+  string fromDeviceIp = 12;
+  string fromDeviceDisplayName = 13;
+  int64 createdTime = 14;
+  int64 updateTime = 15;
+}
+
+message TermBKFileUploadReceiptReq {
+  string file_name = 1;
+  int64 file_size = 2;
+  int64 file_virtual_size = 3;
+  int32 file_type = 4;
+  int32 if_secret = 5;
+  string owner_id = 6;
+  int32 owner_type = 7;
+  string owner_name = 8;
+  int32 computer_type = 9;
+  string from_device_mac = 10;
+  string from_device_ip = 11;
+  int64 update_time = 12;
+  string backup_path = 13;
+}
+
+message TermBKFileUploadReceiptResp {
+  common.ErrorData error = 1;
+  int32 update_result = 2;
+}
+
+message ReportSuccessReq {
+  string vm_ip = 1;
+  client.ClientBaseInfo content = 2;
+  client.ClientExtendInfo client_extend_info = 3;
+}
+
+message ReportSuccessResp {
+  common.ErrorData error = 1;
+}
+
+message SnapshotReq {
+  client.ClientBaseInfo content = 1;
+  int32 op_type = 2;
+  string name = 3;
+  string description = 4;
+  int32 name_type = 5;
+}
+
+message SnapshotResp {
+  repeated client.SnapshotInfo snapshot_list = 1;
+  common.ErrorData error = 2;
+}
+
+message UpgradeReq {
+  string client_name = 1;
+  string client_version = 2;
+  string client_type = 3;
+  string os_type = 4;
+  string cpu_arch = 5;
+  string ip = 6;
+  string device_id = 7;
+  string device_name = 8;
+  string state = 9;
+}
+
+message UpgradeResp {
+  string client_version = 1;
+  string download_type = 2;
+  string url = 3;
+  int32 force = 4;
+  string md5 = 5;
+  string description = 6;
+  common.ErrorData error = 7;
+}
+
+message USBNotifyReq {
+  client.ClientBaseInfo client_base_info = 1;
+  client.ClientInfo client_info = 2;
+  client.TargetVm target_vm = 3;
+}
+
+message USBNotifyResp {
+  common.ErrorData error = 1;
+}
+
+message LsUserInfoReq {
+  int64 id = 1;
+  int64 deviceId = 2;
+}
+
+message LsUserInfoResp {
+  string accessAccount = 1;
+  string accessPassword = 2;
+  common.ErrorData error = 3;
+}
+
+message DeskTopPoolReq {
+  int32 vmId = 1;
+  string vmUuid = 2;
+  int32 deviceType = 3;
+}
+
+message DeskTopPoolResp {
+  client.PoolInfo pool = 1;
+  common.ErrorData error = 2;
+  string mac = 3;
+  common_message.IdvUSBPolicy idvUsbPolicy = 4;
+  string computerName = 5;
+  int32 vmAutoLogin = 6;
+  string recoverUuid = 7;
+  bool createRestorePoint = 8;
+  int32 pwdOption = 9;
+  string fixedPwd = 10;
+  int64 dataDiskSize = 11;
+  int32 isDataDiskModified = 12;
+  int64 software_vm_id = 13;
+  client.DesktopPoolLsExtend desktop_pool_ls_extend = 14;
+}
+
+message DesktopPoolLsExtend {
+  int32 compatible_mode = 1;
+  string data_recover_uuid = 2;
+}
+
+message TemplatesOrIsosReq {
+  int32 type = 1;
+  int32 TemplatesIdOrIsoId = 2;
+  string imageUuid = 3;
+  int32 templateType = 4;
+  string terminalType = 5;
+  string token = 6;
+  int64 deviceId = 7;
+}
+
+message TemplatesOrIsosResp {
+  repeated client.Template temps = 1;
+  repeated client.ISOStorage isos = 2;
+  common.ErrorData error = 3;
+  string optUrl = 4;
+  string httpURL = 5;
+}
+
+message SaveTemplateResp {
+  string templateName = 1;
+  common.ErrorData error = 2;
+}
+
+message NextCloudInfoReq {
+  int64 userId = 1;
+  int64 courseId = 2;
+  string mac = 3;
+}
+
+message NextCloudInfoResp {
+  string serverIp = 1;
+  string port = 2;
+  int32 enable = 3;
+  common.ErrorData error = 4;
+  int64 ncSize = 5;
+  string enterprise_id = 6;
+  string product_id = 7;
+  string server_address = 8;
+  string workspaceId = 9;
+  string clientDownloadUrl = 10;
+  string panJumpUrl = 11;
+  string currentPan = 12;
+  string courseName = 13;
+  string class_begin_time = 14;
+  string display_name = 15;
+  string examFilePath = 16;
+  string cloudBackupPath = 17;
+  string auth_token = 18;
+  string server_folder_id = 19;
+}
+
+message ClientBaseInfo {
+  string name = 1;
+  string password = 2;
+  string domain = 3;
+  string ip = 4;
+  string mac = 5;
+  string device_id = 6;
+  string device_name = 7;
+  int64 vm_id = 8;
+  string auth_type = 9;
+  string sms_code = 10;
+  string refresh_flag = 11;
+  string client_type = 12;
+  string protocol_type = 13;
+  int32 computer_type = 14;
+  string vmUuid = 15;
+  int32 isOpenldap = 16;
+  int32 connect_type = 17;
+  string h5_clientUuid = 18;
+  int32 ssoLogin = 19;
+  bytes encryptPassword = 20;
+  string spmId = 21;
+  string ticket = 22;
+  int32 desktop_type = 23;
+  int64 auth_stg_id = 24;
+  string codeSource = 25;
+  string dynaToken = 26;
+  string googleSecretKey = 27;
+  string inputGoogleCode = 28;
+  bool isOffCampus = 29;
+  string fingerPrintCode = 30;
+}
+
+message ClientExtendInfo {
+  string client_language = 1;
+  string client_version = 2;
+  string vendor = 3;
+  string model = 4;
+  string os_type = 5;
+  string os_version = 6;
+  int32 computer_type = 7;
+  int64 classroom_id = 8;
+  string cpu_arch = 9;
+  bool forceLogin = 10;
+  int32 classroom_num = 11;
+  string spaceagent_version = 12;
+  string v_app_name = 13;
+  int32 scene = 14;
+  string osDetail = 15;
+  string compatible_item = 16;
+  string v_app_group = 17;
+  int32 flag_reconnection_network = 18;
+}
+
+message ClientInfo {
+  string password = 1;
+  string read_only = 2;
+}
+
+message ClientUpgrade {
+  string type = 1;
+  string state = 2;
+}
+
+message ControlPolicy {
+  client.SharePolicy share_policy = 1;
+  client.USBPolicy usb_policy = 2;
+  client.SerialPolicy serial_policy = 3;
+  client.MixCalPolicy mix_cal_policy = 4;
+  client.WatermarkPolicy watermark_policy = 5;
+  client.VideoPolicy video_policy = 6;
+  client.ParallelPolicy parallel_policy = 7;
+  int32 reconnection_network_time = 8;
+  int32 audio_policy = 9;
+  common_message.PipelineLimitPolicy pipeline_limit_policy = 10;
+  bool unconditional_reconnect = 11;
+  bool auto_change_connect = 12;
+  int32 auto_change_connect_count = 13;
+  client.H5Redirect h5_redirect_policy = 14;
+  bool enableUpmPolicy = 15;
+}
+
+message VideoPolicy {
+  int32 videoEncode = 1;
+  int32 spiceTls = 2;
+  int32 low_bandwidth = 3;
+  int32 max_threads_stream = 4;
+  int32 full_stream_max_fps = 5;
+  int32 full_stream_timer_delay = 6;
+  int32 bitrate_wz264 = 7;
+  int32 vbv_wz264 = 8;
+  int32 bitrate_x264 = 9;
+  int32 vbv_buf_wz264 = 10;
+  int32 key_int_wz264 = 11;
+  int32 qp_max_wz264 = 12;
+  int32 bitrate_wz265 = 13;
+  int32 vbv_wz265 = 14;
+  int32 vbv_buf_wz265 = 15;
+  int32 key_int_wz265 = 16;
+  int32 qp_max_wz265 = 17;
+  int32 network_monitor_timer = 18;
+  int32 stream_convert_mode = 19;
+  int32 image_compression_mode = 20;
+  int32 enable_image_cache = 21;
+  int32 enable_wz = 22;
+  int32 cmd_merge = 23;
+  int32 jpeg_quality = 24;
+  int32 videoDecode = 25;
+  int32 spiceUdp = 26;
+  int32 spicePreferProto = 27;
+  int32 forceDistributionDecode = 28;
+  int32 lanSpiceUdp = 29;
+  int32 lanSpicePreferProto = 30;
+  int32 enablePowerCodec = 31;
+  int32 videoMode = 32;
+  int32 videoModeGw = 33;
+  bool forceEnableVideoMode = 34;
+  int32 enableCongestionControl = 35;
+  int32 fpsControlMode = 36;
+}
+
+message SharePolicy {
+  int32 drivers = 1;
+  int32 clipboard = 2;
+  int32 rdp_clipboard = 3;
+  int32 vdp_clipboard = 4;
+  int32 printers = 5;
+  int32 smart_card = 6;
+  int32 comports = 7;
+  int32 pnp_device = 8;
+  int32 redirectCamera = 9;
+  repeated client.VdpClipboardFilter vdp_clipboard_filter_list = 10;
+  int32 cd_dvd = 11;
+  repeated string cameraConfig = 12;
+  int32 redirect_all_disk = 13;
+}
+
+message USBPolicy {
+  int32 enable = 1;
+  int32 usbRedirectStorage = 2;
+  int32 usbRedirectCamera = 3;
+  int32 usbRedirectScanner = 4;
+  int32 usbRedirectPrinter = 5;
+  int32 usbRedirectSmartCard = 6;
+  repeated string policy_list = 7;
+  int32 store_readonly = 8;
+  int32 usbRedirectOther = 9;
+  int32 usbRedirectCommunications = 10;
+  int32 usbRedirectBridgeClass = 11;
+  int32 usbRedirectWirelessController = 12;
+  int32 usbRedirectVendorSpecific = 13;
+}
+
+message SerialPolicy {
+  int32 enable = 1;
+}
+
+message ParallelPolicy {
+  int32 enable = 1;
+}
+
+message MixCalPolicy {
+  repeated client.Program program_list = 1;
+}
+
+message WatermarkPolicy {
+  int32 enable = 1;
+  int32 show_ip = 2;
+  int32 show_mac = 3;
+  int32 show_time = 4;
+  int32 full_screen = 5;
+  string color = 6;
+  int32 font_size = 7;
+  int32 transparent = 8;
+  string user_define = 9;
+  int32 show_user_name = 10;
+  int32 show_compt_name = 11;
+  int32 rotation_angle = 12;
+  int32 show_login_name = 13;
+  int32 show_desktop_pool_name = 14;
+  int32 show_system_name = 15;
+  int32 show_position = 16;
+  int32 show_wm_title = 17;
+  int32 show_terminal_ip = 18;
+  int32 show_terminal_mac = 19;
+  int32 show_course_type = 20;
+  int32 show_terminal_num = 21;
+  int32 show_terminal_name = 22;
+  int32 show_course_name = 23;
+  int32 show_classroom_teacher = 24;
+  int32 show_classroom_name = 25;
+  client.WatermarkPolicyContent watermarkPolicyContent = 26;
+}
+
+message H5Redirect {
+  int32 enableProxy = 1;
+  string proxyIp = 2;
+  string proxyPort = 3;
+}
+
+message WatermarkPolicyContent {
+  string terminal_ip = 1;
+  string terminal_mac = 2;
+  string course_type = 3;
+  string terminal_num = 4;
+  string terminal_name = 5;
+  string course_name = 6;
+  string classroom_teacher = 7;
+  string classroom_name = 8;
+}
+
+message Device {
+  string device_id = 1;
+  client.VmAddress vm_address = 2;
+}
+
+message ExtendOp {
+  int32 shudown = 1;
+  int32 reboot = 2;
+  int32 power_off_reboot = 3;
+  int32 power_off = 4;
+  int32 back_home = 5;
+  int32 disconnection = 6;
+  int32 client_ctrl_alt_del = 7;
+  int32 logout_user = 8;
+  int32 snapshot = 9;
+  int32 network_detection = 10;
+  int32 interact_shutdown = 11;
+  int32 client_occupy = 12;
+  int32 modify_name = 13;
+  int32 multi_dynamic_desktop = 14;
+  int32 clientUnifiedConfig = 15;
+  int32 videoQuality = 16;
+}
+
+message PoolInfo {
+  int64 id = 1;
+  string name = 2;
+  int32 status = 3;
+  int32 type = 4;
+  string vm_os_version = 5;
+  int32 vm_os_type = 6;
+  repeated client.Vm vm_list = 7;
+  client.ExtendOp extend_op = 8;
+  int64 templetId = 9;
+  int32 offlineDate = 10;
+  int32 recoverMode = 11;
+  int32 computer_type = 12;
+  client.AuthDevice authDevice = 13;
+  string imageUuid = 14;
+  string accessAccount = 15;
+  string accessPassword = 16;
+  int64 pool_expire_time = 17;
+  string server_address = 18;
+  string server_port = 19;
+  int32 gateway_access_strategy = 20;
+  string resource_name = 21;
+  int32 isPublish = 22;
+  string groupKey = 23;
+  int32 serialNumber = 24;
+  string zero_trust_server_address = 25;
+  string zero_trust_server_port = 26;
+  int32 authUserType = 27;
+  int32 offlineRecoverMode = 28;
+  int32 upload_enable = 29;
+  int64 examSessionId = 30;
+  string controller_address = 31;
+  string controller_port = 32;
+}
+
+message Program {
+  string name = 1;
+  string path = 2;
+  string parameter = 3;
+  string icon = 4;
+}
+
+message SnapshotInfo {
+  string name = 1;
+  string description = 2;
+}
+
+message TargetVm {
+  string vm_id = 1;
+  string vmUuid = 2;
+}
+
+message UpgradeInfo {
+  int32 force = 1;
+  string version = 2;
+  string url = 3;
+  string md5 = 4;
+}
+
+message Vm {
+  int64 vm_id = 1;
+  string vm_name = 2;
+  string vm_status = 3;
+  repeated client.VmAddress address_list = 4;
+  string os_version = 5;
+  int32 os_type = 6;
+  int32 is_port_enable = 7;
+  client.ExtendOp extend_op = 8;
+  repeated client.SnapshotInfo snapshot_list = 9;
+  string vmUuid = 10;
+  int64 vm_expire_time = 11;
+  int64 vm_frezze_time = 12;
+  string cpu = 13;
+  string memory = 14;
+  string sys_disk = 15;
+  string extra_data_disk = 16;
+  int32 frezze_status = 17;
+  bool isCurrentPC = 18;
+}
+
+message AuthDevice {
+  int64 user_id = 1;
+  string userName = 2;
+  string domain = 3;
+  string adAdminName = 4;
+  string adAdminPassword = 5;
+  string ou = 6;
+}
+
+message VmAddress {
+  string mac = 1;
+  repeated string ip_list = 2;
+}
+
+message VmInfo {
+  int64 vm_id = 1;
+  string vm_name = 2;
+  string vm_status = 3;
+  string vm_is_used = 4;
+  repeated string ip_list = 5;
+  int32 os_type = 6;
+  string os_version = 7;
+  int32 is_port_enable = 8;
+  client.ExtendOp extend_op = 9;
+  client.ControlPolicy control_policy = 10;
+  repeated client.VmAddress address_list = 11;
+  string vmUuid = 12;
+  string domain_name = 13;
+  int32 pwd_opt = 14;
+  repeated client.TimeOutOperation timeout_operation = 15;
+  string name = 16;
+  string password = 17;
+  repeated string grouplist = 18;
+  string spice_password = 19;
+  bool is_share_pool = 20;
+  string pool_name = 21;
+  int64 auth_stg_id = 22;
+  int32 authUserType = 23;
+  int32 pool_computer_type = 24;
+}
+
+message TimeOutOperation {
+  string operateType = 1;
+  int32 idleTime = 2;
+}
+
+message Template {
+  int64 id = 1;
+  string name = 2;
+  int32 osType = 3;
+  string osVersion = 4;
+  string osBit = 5;
+  string terminal_type = 6;
+  int64 size = 7;
+  int64 parent_id = 8;
+  int64 createTime = 9;
+  int64 modifyTime = 10;
+  string description = 11;
+  string btUrl = 12;
+  string sha1 = 13;
+  string url = 14;
+  string path = 15;
+  int32 storageSize = 16;
+  string token = 17;
+  int64 type = 18;
+  int32 fixedMode = 19;
+  string voiSuffix = 20;
+  int32 image_file_type = 21;
+  int32 terminal_cpu = 22;
+  int64 terminal_menory = 23;
+  int64 source_image_id = 24;
+  int32 boot_firmware = 25;
+  client.TemplateLsExtend template_ls_extend = 26;
+}
+
+message TemplateLsExtend {
+  bool lock_mirror = 1;
+  bool auto_download = 2;
+  bool disk_force_retain = 3;
+  int32 system_recover_mode = 4;
+  string recover_uuid = 5;
+  int32 offline_strategy = 6;
+  bool hide = 7;
+  bool mount_data_disk = 8;
+  int64 user_safe_space = 9;
+  int32 delay_time = 10;
+}
+
+message ISOStorage {
+  int64 id = 1;
+  string poolName = 2;
+  string fileName = 3;
+  string md5 = 4;
+  int32 hostId = 5;
+  string url = 6;
+  string name = 7;
+  string token = 8;
+  int64 size = 9;
+}
+
+message OnekeyHelpReq {
+  string userMac = 1;
+  string realName = 2;
+  string phoneNumber = 3;
+  string email = 4;
+  string problemType = 5;
+  string problemDesc = 6;
+  int32 getLog = 7;
+  string screenShotUrl = 8;
+  string ip = 9;
+  string vmIp = 10;
+  int32 useGateway = 11;
+}
+
+message OnekeyHelpResp {
+  common.ErrorData error = 1;
+  int64 taskId = 2;
+}
+
+message ExchangeDataReq {
+  string device_id = 1;
+  bytes configInfo = 2;
+}
+
+message VoiClientData {
+  string device_id = 1;
+  bytes voiInfo = 2;
+}
+
+message LoadVoiClientDataReq {
+  string device_id = 1;
+}
+
+message VoiClientLocalConfig {
+  int32 recoverStatus = 1;
+}
+
+message RemoteAppInfoReq {
+  string userName = 1;
+  string displayName = 2;
+  string domain = 3;
+  string clientIp = 4;
+  string app_group_name = 5;
+  int32 connect_type = 6;
+  int32 is_openldap = 7;
+  string password = 8;
+  int64 app_group_id = 14;
+  int32 ssoLogin = 15;
+}
+
+message RemoteAppListResp {
+  repeated client.RemoteAppInfo app_list = 1;
+  common.ErrorData error = 2;
+  bool shortcuts = 3;
+  bool shortcut_safe_control = 4;
+}
+
+message RemoteAppInfo {
+  string displayName = 1;
+  string iconUrl = 2;
+  int32 type = 3;
+  string server_address = 4;
+  string server_port = 5;
+  int32 gateway_access_strategy = 6;
+  string resource_name = 7;
+  int32 location = 8;
+  string app_group_name = 9;
+  string textTypeAssociate = 10;
+  bool shortcuts = 11;
+  bool shortcut_safe_control = 12;
+  int64 app_group_id = 13;
+}
+
+message RemoteAppInfoResp {
+  string appId = 1;
+  string fullAddress = 2;
+  string iconUrl = 3;
+  string displayName = 4;
+  string alias = 5;
+  common.ErrorData error = 6;
+  client.ControlPolicy control_policy = 7;
+  string rdpPort = 8;
+  string vm_uuid = 9;
+  string app_group_name = 10;
+  bool local_input_method = 11;
+  int32 computer_type = 12;
+  string server_os_version = 13;
+  bool enable_upm = 14;
+  client.ClientLoginInfo client_login_info = 15;
+  bool shortcut_safe_control = 16;
+}
+
+message QueryVoiRunningModeReq {
+  string deviceMac = 1;
+  int64 deviceId = 2;
+}
+
+message QueryVoiRunningModeResp {
+  int32 runningMode = 1;
+  common.ErrorData error = 2;
+  bool isEnableDeloy = 3;
+  int32 isOldPc = 4;
+}
+
+message AdminLoginReq {
+  string name = 1;
+  string pwd = 2;
+}
+
+message AdminLoginResp {
+  string token = 1;
+  common.ErrorData error = 2;
+}
+
+message VoiImageReq {
+  int64 registerId = 1;
+}
+
+message VoiImageResp {
+  int64 courseImageId = 1;
+  repeated client.Template templates = 2;
+  common.ErrorData error = 3;
+  string classId = 4;
+}
+
+message WhoAreYouReply {
+  string name = 1;
+  common.ErrorData error = 2;
+}
+
+message ResourceList {
+  repeated client.ResourceInfo resourceInfo_list = 1;
+  common.ErrorData error = 2;
+}
+
+message ResourceInfo {
+  int64 id = 1;
+  string name = 2;
+  string details = 3;
+  string ip = 4;
+  string status = 5;
+  string platEdition = 6;
+  string country = 7;
+  string province = 8;
+  string city = 9;
+  string district = 10;
+  string orgName = 11;
+  bool gateway = 12;
+  int32 port = 13;
+}
+
+message VmReq {
+  int32 vmId = 1;
+  string vmUuid = 2;
+  int32 deviceType = 3;
+  string server_address = 4;
+  int32 computerType = 5;
+}
+
+message VmDetailInfoResp {
+  int64 memSize = 1;
+  string memRate = 2;
+  int64 cpuSize = 3;
+  string cpuRate = 4;
+  common.ErrorData error = 5;
+}
+
+message IndividualConfigReq {
+  int32 type = 1;
+}
+
+message IndividualConfigResp {
+  string systemName = 1;
+  string copyRight = 2;
+  string logoImgUrl = 3;
+  string backgroundImgUrl = 4;
+  string content = 5;
+  string createTime = 6;
+  int32 individual = 7;
+  common.ErrorData error = 8;
+  string vendor_name = 9;
+  string contactUs = 10;
+  string officialWebSite = 11;
+}
+
+message SaasAppReq {
+  client.ClientBaseInfo clientBaseInfo = 1;
+  client.SaasAppInfo saasAppInfo = 2;
+}
+
+message SaasAppListResp {
+  repeated client.SaasAppInfo app_list = 1;
+  common.ErrorData error = 2;
+}
+
+message SaasAppInfo {
+  string appName = 1;
+  string iconUrl = 2;
+  string appAddress = 3;
+  string description = 4;
+  string ssoProtocol = 5;
+}
+
+message SamlSSOReq {
+  client.ClientBaseInfo client_base_info = 1;
+  string appName = 2;
+  string appAddress = 3;
+}
+
+message SamlSSOResp {
+  string response = 1;
+  common.ErrorData error = 2;
+}
+
+message SysParaConfig {
+  message ParaMapEntry {
+    string key = 1;
+    string value = 2;
+  }
+  repeated client.SysParaConfig.ParaMapEntry paraMap = 1;
+}
+
+message WebAppSetReq {
+  int64 user_id = 14;
+  client.WebAppSet web_app_set = 2;
+}
+
+message WebAppSet {
+  int32 connect_type = 2;
+  int64 auto_logout_time = 3;
+}
+
+message RedirectStatusReq {
+  client.ClientBaseInfo client_base_info = 1;
+  string vm_uuid = 2;
+  repeated client.RedirectStatusInfo redirect_list = 3;
+}
+
+message RedirectStatusInfo {
+  string redirect_device_name = 1;
+  string pid = 2;
+  string vid = 3;
+  string redirect_device_type = 4;
+  string subClass = 5;
+  int32 redirect_status = 6;
+  string description = 7;
+}
+
+message LdapConfReq {
+  string domainName = 1;
+}
+
+message LdapConfResp {
+  common.ErrorData error = 1;
+  string name = 2;
+  string ip = 3;
+  int32 port = 4;
+  int32 server_type = 5;
+  int32 server_version = 6;
+  string base_dn = 7;
+  string admin_dn = 8;
+  string admin_password = 9;
+  int32 enable_ssl = 10;
+}
+
+message QuantumConfigReq {
+  string userName = 1;
+}
+
+message QuantumConfigResp {
+  bool quantumEncryptEnable = 1;
+  string clientAuthData = 2;
+  string targetId = 3;
+  common.ErrorData error = 4;
+}
+
+message UserQuantumBindReq {
+  string userName = 1;
+  string userId = 2;
+  string spmId = 3;
+}
+
+message UserQuantumBindResp {
+  common.ErrorData error = 1;
+  bool bindResult = 2;
+}
+
+message GwRandomResp {
+  common.ErrorData error = 1;
+  string original = 2;
+  string initparam = 3;
+}
+
+message GwAuthenticateReq {
+  string original = 1;
+  string signedData = 2;
+  string ip = 3;
+  string mac = 4;
+  bool forceLogin = 5;
+  int64 classroomId = 6;
+}
+
+message GwAuthenticateResp {
+  common.ErrorData error = 1;
+  int64 user_id = 2;
+  string userName = 3;
+}
+
+message CheckTmpStorageSizeReq {
+  bool useGateWay = 1;
+  int64 imageSize = 2;
+}
+
+message CheckTmpStorageSizeResp {
+  bool hasEnoughSpace = 1;
+  common.ErrorData error = 2;
+}
+
+message VdpClipboardFilter {
+  int32 filter_type = 1;
+  string filter_key_word = 2;
+  int32 enable_filter = 3;
+  int32 reverse_copy_limit = 4;
+  int32 text_copy_limit = 5;
+  int32 file_copy_limit = 6;
+  bool enable_report = 7;
+}
+
+message ClipboardInfoReq {
+  string username = 1;
+  string filename = 2;
+  string vmMac = 3;
+  string vmName = 4;
+  string time = 5;
+  int32 size = 6;
+  int32 direction = 7;
+  int32 computerType = 8;
+  string textContent = 9;
+  repeated client.VmAddress address_list = 10;
+  string clientIp = 11;
+  string clientMac = 12;
+}
+
+message VdpMigrateInquiryReq {
+  string hostName = 1;
+  string spicePort = 2;
+  string vmUuid = 3;
+}
+
+message VdpMigrateInquiryResp {
+  common.ErrorData error = 1;
+  string hostIp = 2;
+  string gatewayToken = 3;
+}
+
+message SessionPreLaunchResp {
+  repeated client.AppserverInfo appserver_info_list = 1;
+  common.ErrorData error = 2;
+}
+
+message AppserverInfo {
+  string vm_uuid = 1;
+  string ip = 2;
+  string rdp_port = 3;
+  string timeout = 4;
+  client.ControlPolicy control_policy = 5;
+  bool local_input_method = 6;
+  int64 vapp_strategy_id = 7;
+  int32 computer_type = 8;
+  string server_os_version = 9;
+  bool enable_upm = 10;
+}
+
+message ZeroTrustInfo {
+  int32 userType = 1;
+  string extInfoA = 2;
+  string extInfoB = 3;
+  string extInfoC = 4;
+  string extInfoD = 5;
+}
+
+message AuthTypeResq {
+  repeated client.DoubleAuthType codeTypeList = 1;
+  common.ErrorData error = 2;
+}
+
+message DoubleAuthType {
+  string loginType = 1;
+  string type = 2;
+}
+
+message VoiDeployStatus {
+  int64 deviceId = 1;
+  int32 status = 2;
+}
+
+message CommonResp {
+  int32 result = 1;
+  common.ErrorData error = 2;
+}
+
+message CheckVerifyCodeReq {
+  string verifyCode = 1;
+  string phone = 2;
+  string ticket = 3;
+  int32 isBind = 4;
+  string username = 5;
+  string domain = 6;
+}
+
+message CheckVerifyCodeResp {
+  string username = 1;
+  string password = 2;
+  string domain = 3;
+  common.ErrorData error = 4;
+}
+
+message UnbindUserPhoneReq {
+  string username = 1;
+  string password = 2;
+  string domain = 3;
+}
+
+message UnbindUserPhoneResp {
+  common.ErrorData error = 1;
+}
+
+message LoginViaVerifyCodeReq {
+  string account = 1;
+  string ticket = 2;
+  string verifyCode = 3;
+  client.ClientBaseInfo client_base_info = 4;
+  client.ClientExtendInfo client_extend_info = 5;
+}
+
+message VmTransferResultReq {
+  string clientMac = 1;
+  bool isVmTransfer = 2;
+}
+
+message VmTransferResultResp {
+  common.ErrorData error = 1;
+}
+
+message VerifyCodeReq {
+  string username = 1;
+  string domain = 2;
+  string account = 3;
+  int32 verifyType = 4;
+  string language = 5;
+}
+
+message VerifyCodeResp {
+  string ticket = 1;
+  string timeout = 2;
+  common.ErrorData error = 3;
+  string domain = 4;
+}
+
+message ResetPasswordViaSmsOrEmailCodeReq {
+  string username = 1;
+  string domain = 2;
+  string password = 3;
+}
+
+message AppDownloadUrlResp {
+  repeated string windowsDownloadUrl = 1;
+  string macosDownloadUrl = 2;
+}
+
+message WebPageRedirectionResp {
+  int32 mainSwitch = 1;
+  repeated client.WebPageInfo webPage_list = 2;
+}
+
+message WebPageInfo {
+  int32 status = 1;
+  string websiteAddress = 2;
+  string websiteName = 3;
+  int32 type = 4;
+}
+
+message SoftwareDiskReq {
+  int64 software_vm_id = 1;
+}
+
+message SoftwareDiskResp {
+  string software_disk_bt_url = 1;
+  string software_disk_http_url = 2;
+  int64 software_disk_size = 3;
+  int32 software_disk_opt = 4;
+  string md5 = 5;
+  int64 software_vm_id = 6;
+  int64 software_lib_version_id = 7;
+  string software_disk_name = 8;
+  common.ErrorData error = 9;
+}
+
+message SoftwareDiskResultReq {
+  int64 software_vm_id = 1;
+  int32 software_disk_opt = 2;
+  int32 software_disk_result = 3;
+}
+
+message SoftwareDiskResultResp {
+  common.ErrorData error = 1;
+}
+
+message QueryForAgentReq {
+  string vmUuid = 1;
+  int32 computerType = 2;
+  int32 authType = 3;
+  string userName = 4;
+  string domainName = 5;
+}
+
+message UsbInfoResp {
+  repeated client.UsbWriteOrBlackListInfo usbWriteOrBlackList = 1;
+  int32 idvRedirectStorage = 2;
+  int32 idvRedirectCamera = 3;
+  int32 idvRedirectScanner = 4;
+  int32 idvRedirectPrinter = 5;
+  int32 idvRedirectSmartCard = 6;
+  common.ErrorData error = 7;
+  int32 idvRedirectOther = 8;
+  int32 idvRedirectCommunications = 9;
+  int32 idvRedirectBridgeClass = 10;
+  int32 idvRedirectWirelessController = 11;
+  int32 idvRedirectVendorSpecific = 12;
+}
+
+message UsbWriteOrBlackListInfo {
+  string deviceName = 1;
+  string vid = 2;
+  string pid = 3;
+  string deviceClass = 4;
+  string subClass = 5;
+  string protocol = 6;
+  int32 enable = 7;
+  int32 redirection = 8;
+}
+
+message BindWechatReq {
+  string openId = 1;
+  string username = 2;
+  string password = 3;
+  string domain = 4;
+  int32 clientType = 5;
+}
+
+message UnbindWechatReq {
+  int64 userId = 1;
+}
+
+message UnbindWechatResp {
+  common.ErrorData error = 1;
+}
+
+message WechatAuthResp {
+  common.ErrorData error = 1;
+  string openId = 2;
+  string nickName = 3;
+  client.LoginResp loginResp = 4;
+  bool isVm = 5;
+}
+
+message RegisterWechatReq {
+  string openId = 1;
+  string username = 2;
+  string name = 3;
+  string password = 4;
+  int32 sex = 5;
+  int64 userGroupId = 6;
+}
+
+message RegisterWechatResp {
+  common.ErrorData error = 1;
+}
+
+message ForceLoginWechatOpenReq {
+  string deviceMac = 1;
+}
+
+message VmSessionLogoutReq {
+  int64 user_id = 1;
+}
+
+message TokenResp {
+  common.ErrorData error = 1;
+  string token = 2;
+}
+
+message TokenReq {
+  string token = 1;
+}
+
+message FingerPrintInputReq {
+  string FingerPrintData = 1;
+  int64 userId = 2;
+  int32 fpType = 3;
+  string mac = 4;
+}
+
+message FingerPrintInputResp {
+  common.ErrorData error = 1;
+}
+
+message ClientLoginInfo {
+  string name = 1;
+  string password = 2;
+  string domain = 3;
+  bool is_openldap = 4;
+  int32 web_sso_login = 5;
+  string user_name = 6;
+  int64 user_id = 7;
+}
+
+service ClientCore {
+  rpc ApplyForDeviceInfo (client.ApplyForDeviceInfoReq) returns (client.ApplyForDeviceInfoResp);
+  rpc DeviceExisted (client.ApplyForDeviceInfoReq) returns (client.DeviceExistedResp);
+  rpc ApplyForEmailInfo (google.protobuf.Empty) returns (client.ApplyForEmailResp);
+  rpc ApplyForVm (client.ApplyForVmReq) returns (client.ApplyForVmResp);
+  rpc ClientReleasePassword (client.ClientReleasePasswordReq) returns (client.ClientReleasePasswordResp);
+  rpc Heartbeat (client.HeartbeatReq) returns (client.HeartbeatResp);
+  rpc Login (client.LoginReq) returns (client.LoginResp);
+  rpc ModifyPassword (client.ModifyPasswordReq) returns (client.ModifyPasswordResp);
+  rpc CheckPassword (client.CheckPasswordReq) returns (client.CheckPasswordResp);
+  rpc ModifyVmName (client.ModifyVmNameReq) returns (client.ModifyVmNameResp);
+  rpc OperateForVm (client.OperateForVmReq) returns (client.OperateForVmResp);
+  rpc RecoverVm (client.OperateForVmReq) returns (client.RecoverVmResp);
+  rpc RegisterDevice (client.RegisterDevReq) returns (client.RegisterDevResp);
+  rpc updateDeviceStatus (client.DeviceStatsuReq) returns (google.protobuf.Empty);
+  rpc getTermBootTaskByClientInfo (client.TermBootTaskInfoReq) returns (client.TermBootTaskInfoResp);
+  rpc updateTermBootTaskObject (client.TermBootTaskReceiptReq) returns (client.TermBootTaskReceiptResp);
+  rpc getTermDataBKConfigByClientInfo (client.TermDataBackupInfoReq) returns (client.TermDataBackupInfoResp);
+  rpc reportTermDataBKFileReceipt (client.TermBKFileUploadReceiptReq) returns (client.TermBKFileUploadReceiptResp);
+  rpc queryVoiRunningMode (client.QueryVoiRunningModeReq) returns (client.QueryVoiRunningModeResp);
+  rpc ReportSuccess (client.ReportSuccessReq) returns (client.ReportSuccessResp);
+  rpc Snapshot (client.SnapshotReq) returns (client.SnapshotResp);
+  rpc Upgrade (client.UpgradeReq) returns (client.UpgradeResp);
+  rpc USBNotify (client.USBNotifyReq) returns (client.USBNotifyResp);
+  rpc GetDesktopPoolById (client.DeskTopPoolReq) returns (client.DeskTopPoolResp);
+  rpc GetLearningspaceDesktopPoolById (client.DeskTopPoolReq) returns (client.DeskTopPoolResp);
+  rpc GetLsUserInfo (client.LsUserInfoReq) returns (client.LsUserInfoResp);
+  rpc GetTemplatesOrIsos (client.TemplatesOrIsosReq) returns (client.TemplatesOrIsosResp);
+  rpc SaveTemplateInfo (client.Template) returns (client.SaveTemplateResp);
+  rpc queryNextCloudInfo (client.NextCloudInfoReq) returns (client.NextCloudInfoResp);
+  rpc queryDeviceConfigInfo (client.DeviceConfigInfoReq) returns (client.DeviceConfigInfoResp);
+  rpc verifySMSCode (client.SMSVerifyReq) returns (client.SMSVerifyResp);
+  rpc querySMSCode (client.NotifySMSVerifyCodeReq) returns (client.NotifySMSVerifyCodeResp);
+  rpc onekeyHelp (client.OnekeyHelpReq) returns (client.OnekeyHelpResp);
+  rpc sendExchangeDataToGuest (client.ExchangeDataReq) returns (common_message.VoidResp);
+  rpc saveVoiInfo (client.VoiClientData) returns (common_message.VoidResp);
+  rpc loadVoiInfo (client.LoadVoiClientDataReq) returns (client.VoiClientData);
+  rpc onekeyHelpUseGateway (stream client.onekeyHelpUploadReq) returns (client.onekeyHelpUploadResp);
+  rpc GetRemoteAppList (client.LoginReq) returns (client.RemoteAppListResp);
+  rpc getConnectAppInfo (client.RemoteAppInfoReq) returns (client.RemoteAppInfoResp);
+  rpc adminLogin (client.AdminLoginReq) returns (client.AdminLoginResp);
+  rpc queryVoiImage (client.VoiImageReq) returns (client.VoiImageResp);
+  rpc queryAgentUseControllerIp (google.protobuf.Empty) returns (common_message.AgentUseControllerIpResp);
+  rpc WhoAreYou (google.protobuf.Empty) returns (client.WhoAreYouReply);
+  rpc QueryNodes (google.protobuf.Empty) returns (client.ResourceList);
+  rpc unbindThirdParty (client.UnbindThirdPartyReq) returns (client.UnbindThirdPartyResp);
+  rpc queryUserInfo (client.QueryUserInfoReq) returns (client.QueryUserInfoResp);
+  rpc modifyUserInfo (client.ModifyUserInfoReq) returns (client.ModifyUserInfoResp);
+  rpc queryTerminalType (common_message.TerminalTypeReq) returns (common_message.TerminalTypeResp);
+  rpc queryAuthStrategy (common_message.AuthStrategyReq) returns (common_message.AuthStrategyResp);
+  rpc queryExtraAuthStrategy (common_message.ExtraAuthStrategyReq) returns (common_message.ExtraAuthStrategyResp);
+  rpc queryIndividualConfig (client.IndividualConfigReq) returns (client.IndividualConfigResp);
+  rpc querySaasAppList (client.ClientBaseInfo) returns (client.SaasAppListResp);
+  rpc querySaasApp (client.SaasAppReq) returns (common_message.VoidResp);
+  rpc samlSSO (client.SamlSSOReq) returns (client.SamlSSOResp);
+  rpc queryShareTerminalInfo (client.ShareTerminalInfoReq) returns (client.ShareTerminalInfoResp);
+  rpc registerShareTerminal (client.RegisterShareTerminalReq) returns (common.ErrorData);
+  rpc transferDesktopToShareTerminal (client.TransDeskToShareTerminalReq) returns (common.ErrorData);
+  rpc LoginWorkspaceOnShareTerminal (client.LoginWorkspaceOnShareTerminalReq) returns (common.ErrorData);
+  rpc queryVmDetailInfo (client.VmReq) returns (client.VmDetailInfoResp);
+  rpc querySSOConfig (google.protobuf.Empty) returns (client.SysParaConfig);
+  rpc webAppSetSave (client.WebAppSetReq) returns (common.ErrorData);
+  rpc webGetAppDownloadUrl (google.protobuf.Empty) returns (client.AppDownloadUrlResp);
+  rpc reportRedirectStatus (client.RedirectStatusReq) returns (common_message.VoidResp);
+  rpc getLdapConf (client.LdapConfReq) returns (client.LdapConfResp);
+  rpc queryWebPageRedirStrategy (common_message.WebPageRedirStrategyReq) returns (common_message.WebPageRedirStrategyResp);
+  rpc getComputerGroupList (common_message.AuthStrategyReq) returns (common_message.JoinComputerGroupResp);
+  rpc getQuantumEncryptEnable (client.QuantumConfigReq) returns (client.QuantumConfigResp);
+  rpc confirmQuantumBind (client.UserQuantumBindReq) returns (client.UserQuantumBindResp);
+  rpc getLoginConfig (client.LoginConfigReq) returns (client.LoginConfigResp);
+  rpc getCode (client.CodeReq) returns (client.CodeResp);
+  rpc CheckAndSaveLdapPassword (client.CheckPasswordReq) returns (client.CheckPasswordResp);
+  rpc CheckTmpStorageSize (client.CheckTmpStorageSizeReq) returns (client.CheckTmpStorageSizeResp);
+  rpc queryJitGwRandom (google.protobuf.Empty) returns (client.GwRandomResp);
+  rpc authenticate (client.GwAuthenticateReq) returns (client.GwAuthenticateResp);
+  rpc queryEsConfig (google.protobuf.Empty) returns (common_message.EsConfigResp);
+  rpc reportClipboardLog (client.ClipboardInfoReq) returns (common.ErrorData);
+  rpc passThroughMessageToAgent (common_message.PassThroughMessage) returns (common.ErrorData);
+  rpc queryVdpHostInfo (client.VdpMigrateInquiryReq) returns (client.VdpMigrateInquiryResp);
+  rpc querySessionPreLaunch (client.LoginReq) returns (client.SessionPreLaunchResp);
+  rpc getDoubleAuthType (google.protobuf.Empty) returns (client.AuthTypeResq);
+  rpc submitRestoreStatus (client.VoiDeployStatus) returns (client.CommonResp);
+  rpc unbindUserPhone (client.UnbindUserPhoneReq) returns (client.UnbindUserPhoneResp);
+  rpc checkVerifyCode (client.CheckVerifyCodeReq) returns (client.CheckVerifyCodeResp);
+  rpc getMonitorPolicy (client.ClientMonitorPolicyReq) returns (client.ClientMonitorPolicyResp);
+  rpc clientReportMonitorResult (client.ClientMonitorResult) returns (common_message.VoidResp);
+  rpc loginViaVerifyCode (client.LoginViaVerifyCodeReq) returns (client.LoginResp);
+  rpc vmTransfer (client.VmTransferResultReq) returns (client.VmTransferResultResp);
+  rpc bindAndValidateGoogleCode (client.LoginReq) returns (client.LoginResp);
+  rpc validateGoogleCode (client.LoginReq) returns (client.LoginResp);
+  rpc getVerifyCode (client.VerifyCodeReq) returns (client.VerifyCodeResp);
+  rpc resetPasswordViaSmsOrEmail (client.ResetPasswordViaSmsOrEmailCodeReq) returns (common.ErrorData);
+  rpc applyForWebPageRedirection (google.protobuf.Empty) returns (client.WebPageRedirectionResp);
+  rpc bindRemoteAccess (client.BindRemoteAccessReq) returns (client.CommonResp);
+  rpc unbindRemoteAccess (client.UnbindRemoteAccessReq) returns (client.CommonResp);
+  rpc getSoftwareDiskInfo (client.SoftwareDiskReq) returns (client.SoftwareDiskResp);
+  rpc queryUsbPolicyForAgent (client.QueryForAgentReq) returns (client.UsbInfoResp);
+  rpc reportSoftwareDiskResult (client.SoftwareDiskResultReq) returns (client.SoftwareDiskResultResp);
+  rpc keyEvent (client.KeyEventReq) returns (client.CommonResp);
+  rpc getLSTermDataBKConfigByClientInfo (client.TermDataBackupInfoReq) returns (client.TermDataBackupInfoResp);
+  rpc reportLSTermDataBKFileReceipt (client.TermBKFileUploadReceiptReq) returns (client.TermBKFileUploadReceiptResp);
+  rpc getRdpPort (google.protobuf.Empty) returns (client.RdpPortResp);
+  rpc imageUploadPreCheck (google.protobuf.Empty) returns (client.PreCheckResp);
+  rpc bindUserWithWechat (client.BindWechatReq) returns (client.BindWechatResp);
+  rpc unbindWechat (client.UnbindWechatReq) returns (client.UnbindWechatResp);
+  rpc registerUserWithWechat (client.RegisterWechatReq) returns (client.RegisterWechatResp);
+  rpc clientCollectLog (stream client.onekeyHelpUploadReq) returns (client.onekeyHelpUploadResp);
+  rpc forceLoginWithWechatOpen (client.ForceLoginWechatOpenReq) returns (client.WechatAuthResp);
+  rpc forceLogoutVmSession (client.VmSessionLogoutReq) returns (common.ErrorData);
+  rpc getVmInfoToVdsessionByToken (client.OperateForVmReq) returns (client.OperateForVmResp);
+  rpc getTokenByVAppInfo (client.RemoteAppInfoReq) returns (client.TokenResp);
+  rpc getVappInfoToVquickByToken (client.TokenReq) returns (client.RemoteAppInfoResp);
+  rpc fingerPrintInput (client.FingerPrintInputReq) returns (client.FingerPrintInputResp);
+}

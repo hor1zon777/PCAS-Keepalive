@@ -1,0 +1,49 @@
+syntax = "proto3";
+package common;
+
+enum CommonMessageID {
+  MSGID_Begin = 0;
+  MESSAGE_ID_REQUEST_OF_BLOCKING_CALL = 64;
+  MESSAGE_ID_RESPONSE_OF_BLOCKING_CALL = 65;
+}
+
+enum BlockingCallStatus {
+  OK = 0;
+  UNKNOWN_ERR = 1;
+  BIZ_ERR = 2;
+}
+
+message StreamMessage {
+  int32 messageId = 1;
+  bytes content = 2;
+}
+
+message MqStreamMessage {
+  int32 messgaeType = 1;
+  common.StreamMessage message = 2;
+  int32 isAll = 3;
+  string key = 4;
+  int32 comquterType = 5;
+  int32 needReturn = 6;
+}
+
+message KeepAliveMessage {
+  message MacIpEntry {
+    string key = 1;
+    string value = 2;
+  }
+  repeated common.KeepAliveMessage.MacIpEntry macIp = 1;
+}
+
+message BlockingCallReq {
+  string uuid = 1;
+  bytes originalMessage = 2;
+}
+
+message BlockingCallResp {
+  string uuid = 1;
+  int32 status = 2;
+  string errorMsg = 3;
+  string respClazz = 4;
+  bytes content = 5;
+}

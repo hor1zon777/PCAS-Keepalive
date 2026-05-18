@@ -1,0 +1,22 @@
+syntax = "proto3";
+package common;
+
+message WatermarkPolicy {
+  int32 enable = 1;
+  int32 invisible = 2;
+  int32 show_ip = 3;
+  int32 show_mac = 4;
+  int32 show_time = 5;
+  int32 full_screen = 6;
+  string color = 7;
+  int32 font_size = 8;
+  int32 transparent = 9;
+  string user_define = 10;
+  int32 show_login_name = 11;
+  string user_name = 12;
+  int32 show_compt_name = 13;
+  int32 rotation_angle = 14;
+  int32 show_desktop_pool_name = 15;
+  int32 show_system_name = 16;
+  int32 show_position = 17;
+}

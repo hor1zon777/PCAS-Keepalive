@@ -1,0 +1,149 @@
+syntax = "proto3";
+package basicservice;
+
+import "common/stream_message.proto";
+
+enum BasicServiceMessageId {
+  MSG_BASICSERVICE_BEGIN = 0;
+  RSP_BASIC_SERVICE_CLIENT_USER_ADD_DENY_LIST = 25001;
+  RSP_BASIC_SERVICE_CLIENT_DEVICE_ADD_DENY_LIST = 25003;
+  RSP_BASIC_SERVICE_CLIENT_LOG_OFF = 25005;
+  RSP_BASIC_SERVICE_TERMINAL_OPERATE = 26005;
+  RSP_BASIC_SERVICE_CLIENT_FACE_RECOGNITION = 26006;
+  RSP_BASIC_SERVICE_CLIENT_QRCODE_LOGIN = 26007;
+  RSP_BASIC_SERVICE_CLIENT_SIM_LOGIN = 26008;
+  RSP_BASIC_SERVICE_CLIENT_USER_WECHAT_NOT_BOUND = 26010;
+  RSP_BASIC_SERVICE_KEEP_ALIVE = 40000;
+  RSP_BASIC_SERVICE_KEEP_ALIVE_RESP = 40001;
+  RSP_BASIC_SERVICE_CLIENT_TERMINAL_SHUTDOWN = 46005;
+  RSP_BASIC_SERVICE_CLIENT_TERMINAL_INTERACTIVE_SHUTDOWN = 46007;
+  RSP_BASIC_SERVICE_UPGRADE_NOTIFY = 46009;
+  RSP_BASIC_SERVICE_COMMAND_FLIE_DISSENMINATE = 46013;
+  RSP_BASIC_SERVICE_DEVICEL_GROUP_UPDATE = 46015;
+  RSP_BASIC_SERVICE_SET_LOCAL_NETWORK = 46017;
+  RSP_BASIC_SERVICE_SHARE_TERMINAL_CONNECT_DESKTOP = 46019;
+  RSP_BASIC_SERVICE_SHARE_TERMINAL_LOGIN_WORKSPACE = 46021;
+  RSP_BASIC_SERVICE_MESSAGE_REPORT_REQUEST = 46023;
+  RSP_BASIC_SERVICE_CLIENT_LOGOUT = 26009;
+  RSP_BASIC_SERVICE_CLIENT_QRCODE_WECHAT_BIND = 26011;
+  RSP_BASIC_SERVICE_CLIENT_USER_PHONE_NOT_BOUND_OR_WRONG = 26012;
+  RSP_BASIC_SERVICE_PROCESS_QUERY_REQUEST = 46125;
+  RSP_BASIC_SERVICE_PROCESS_QUERY_RESPONSE = 46126;
+  RSP_BASIC_SERVICE_PROCESS_QRCODE_LOGIN = 46127;
+  RSP_BASIC_SERVICE_NOTIFY_TERMINAL_PWD_POLICY = 46128;
+  RSP_BASIC_SERVICE_NOTIFY_TERMINAL_VM_TRANSFER = 27777;
+  RSP_BASIC_SERVICE_ES_CONFIG_CHANGE = 46201;
+  REQ_VDI_CLIENT_UPDATE_VIRTUAL_IP = 28888;
+  REQ_BASIC_SERVICE_NOTIFY_LOGIN_GUESTOS = 46666;
+  REQ_BASIC_SERVICE_NOTIFY_RDP_PORT = 46667;
+  REQ_BASIC_SERVICE_NOTIFY_ADDORDEL_DOMAIN_ACCOUNT = 46668;
+  RSP_BASIC_SERVICE_NOTIFY_CLIENT_COLLECT_LOG = 46202;
+  RSP_BASIC_SERVICE_NOTIFY_CLIENT_COLLECT_LOG_RESP = 46203;
+}
+
+message PCRdpPortReq {
+  int32 port = 1;
+}
+
+message PCAccountOperReq {
+  string domain = 1;
+  string account = 2;
+  string password = 3;
+  string group = 4;
+  int32 flagAddOrDel = 5;
+  bool flagDelOther = 6;
+  string servicePort = 7;
+  int64 vmID = 8;
+  string vmUuid = 9;
+  repeated string grouplist = 10;
+  int32 flagThirdUser = 11;
+}
+
+message TerminalLoginGuestOS {
+  string userName = 1;
+  string password = 2;
+  string imageName = 3;
+}
+
+message ShareTerminalLoginWorkspace {
+  string userName = 1;
+  string password = 2;
+}
+
+message ShareTerminalConnectDesktop {
+  bytes vdp_file_data = 1;
+}
+
+message UpgradeNotifyReq {
+  int32 type = 2;
+}
+
+message BasicServiceCommonRespMsg {
+  string requestUuid = 1;
+  int32 result = 2;
+}
+
+message TerminalOperate {
+  string cmd = 1;
+}
+
+message ClientMsg {
+  int64 vmID = 1;
+  string description = 2;
+  string vmUuid = 3;
+  int32 offlineType = 4;
+  int32 terminal_power_off = 5;
+  int32 time = 6;
+}
+
+message ClientLogoffMsg {
+  int32 result = 1;
+}
+
+message BasicServiceKeepAliveMessage {
+  common.KeepAliveMessage keepmessage = 1;
+  repeated basicservice.ClientBaseInfo infos = 2;
+}
+
+message ClientBaseInfo {
+  string clientName = 1;
+  string clientVersion = 2;
+}
+
+message LocalNetInfo {
+  string ip = 1;
+  string mask = 2;
+  string gateway = 3;
+  string preferredDns = 4;
+  string alternateDns = 5;
+}
+
+message ClientLogoutMsg {
+  int32 type = 1;
+  string description = 2;
+}
+
+message ClientPwdPolicy {
+  int32 enable = 1;
+  string client_pwd = 2;
+}
+
+message UpdateVirtualIpReq {
+  string virtualIp = 1;
+  int32 grpcPort = 2;
+  string virtualIpv6 = 3;
+}
+
+message NotifyClientCollectLogGatewayReq {
+  int64 taskId = 1;
+  string fileName = 2;
+}
+
+message NotifyClientCollectLogGatewayResp {
+  int64 taskId = 1;
+  int32 result = 2;
+}
+
+service BidiBasicServiceStream {
+  rpc BasicServiceRPC (stream common.StreamMessage) returns (stream common.StreamMessage);
+}

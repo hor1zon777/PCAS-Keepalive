@@ -1,0 +1,62 @@
+syntax = "proto3";
+package common;
+
+import "common/error_data.proto";
+import "google/protobuf/empty.proto";
+
+message VmEventReq {
+  message MacIpEntry {
+    string key = 1;
+    string value = 2;
+  }
+  string vmUuid = 1;
+  repeated common.VmEventReq.MacIpEntry macIp = 2;
+  int32 computerType = 3;
+  string eventType = 4;
+}
+
+message VmEventResp {
+  string vmUuid = 1;
+  string vmTitle = 2;
+  int32 computerType = 3;
+  string eventType = 4;
+  int64 lastTime = 5;
+  common.ErrorData error = 6;
+}
+
+message UninstallPwdResp {
+  common.ErrorData error = 1;
+  int32 enable = 2;
+  string ciphertext = 3;
+}
+
+message isUseGatewayReq {
+}
+
+message isUseGatewayResp {
+  common.ErrorData error = 1;
+  int32 useGateway = 2;
+}
+
+message queryGatewayInfoResp {
+  common.ErrorData error = 1;
+  repeated common.GatewayInfo gateway_list = 2;
+}
+
+message GatewayInfo {
+  string name = 1;
+  string description = 2;
+  string type = 3;
+  string domain = 4;
+  string public_ip = 5;
+  string VDP_port = 6;
+  string RDP_port = 7;
+  string RD_type = 8;
+}
+
+service CommonCore {
+  rpc isUseGateway (common.isUseGatewayReq) returns (common.isUseGatewayResp);
+  rpc queryGatewayInfo (google.protobuf.Empty) returns (common.queryGatewayInfoResp);
+  rpc queryUninstallPwd (google.protobuf.Empty) returns (common.UninstallPwdResp);
+  rpc queryVmEventTime (common.VmEventReq) returns (common.VmEventResp);
+}

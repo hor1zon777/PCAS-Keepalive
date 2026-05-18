@@ -1,0 +1,8 @@
+syntax = "proto3";
+package common;
+
+message ErrorData {
+  int32 error_code = 1;
+  string error_msg_zh = 2;
+  string error_msg_en = 3;
+}

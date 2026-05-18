@@ -1,0 +1,458 @@
+syntax = "proto3";
+package common_message;
+
+import "common/error_data.proto";
+import "common/watermark_policy.proto";
+
+message VoidResp {
+  common.ErrorData error = 1;
+}
+
+message IdvUSBPolicy {
+  int32 storeDevEnable = 1;
+  int32 cameraDevEnable = 2;
+  int32 scannerDevEnable = 3;
+  int32 printerDevEnable = 4;
+  int32 otherDevEnable = 5;
+  int32 communicationsDevEnable = 6;
+  int32 bridgeClassDevEnable = 7;
+  int32 wirelessControllerDevEnable = 8;
+  int32 vendorSpecificDevEnable = 9;
+}
+
+message VoiConfigInfo {
+  string userName = 1;
+  string userPassword = 2;
+  string userId = 3;
+  string yunHostName = 4;
+  common_message.IdvUSBPolicy usbPolicy = 5;
+  string yunPort = 6;
+  int32 yunEnable = 7;
+  string domain = 8;
+  string group = 9;
+  string computerName = 10;
+}
+
+message SingleLoginPolicyResp {
+  int32 vmAutoLogin = 1;
+  common.ErrorData error = 2;
+}
+
+message VgpuParaInfo {
+  int32 displayLevel = 1;
+  int32 grapPicRate = 2;
+  int32 grapManaer = 3;
+  int32 grapTimeOut = 4;
+  int32 rateControlManaer = 5;
+  int64 avgEncRate = 6;
+  int64 maxEncRate = 7;
+  int32 avgQp = 8;
+  int32 maxQp = 9;
+  int32 minQp = 10;
+  int32 gopLength = 11;
+  int32 preset = 12;
+  int32 reserved1 = 13;
+  int32 reserved2 = 14;
+  int32 reserved3 = 15;
+  int32 reserved4 = 16;
+  string vmUuid = 17;
+  int64 desktopPoolId = 18;
+  int32 codeType = 19;
+  int32 colorSpace = 20;
+}
+
+message VideoRedirectWebInfo {
+  int32 enable = 1;
+  repeated string urls = 2;
+}
+
+message AgentUseControllerIpResp {
+  string ip = 1;
+  int32 port = 2;
+  string domain_name = 3;
+  common.ErrorData error = 4;
+  string ipv6 = 5;
+}
+
+message ResourceParams {
+  int32 reportEnable = 1;
+  int32 interval = 2;
+}
+
+message ResourceData {
+  string uuid = 1;
+  string ip = 2;
+  string mac = 3;
+  int32 cpu = 4;
+  string memoryCapability = 5;
+  int32 computerType = 6;
+  string time = 7;
+  string cpuRatio = 8;
+  string memoryRatio = 9;
+  repeated common_message.DiskResourceData diskResourceData = 10;
+  repeated common_message.NetResourceData netResourceData = 11;
+  repeated common_message.PartitionResourceData partitionResourceData = 12;
+  string tcpConnections = 13;
+  string udpConnections = 14;
+  string cpuUsage = 15;
+}
+
+message DiskResourceData {
+  string diskName = 1;
+  string diskCapability = 2;
+  string diskRatio = 3;
+  string ioThroughputRead = 4;
+  string ioThroughputWrite = 5;
+  string ioDelayRead = 6;
+  string ioDelayWrite = 7;
+  string diskRequestRead = 8;
+  string diskRequestWrite = 9;
+}
+
+message NetResourceData {
+  string mac = 1;
+  string netThroughputReceive = 2;
+  string netThroughputSend = 3;
+  repeated common_message.Tuple tuple = 4;
+}
+
+message PartitionResourceData {
+  string sysPartition = 1;
+  string capability = 2;
+  string useCapability = 3;
+  string ratio = 4;
+}
+
+message ProcessInformationReq {
+  string deviceId = 1;
+  string requestUuid = 2;
+}
+
+message ProcessInformationResp {
+  string requestUuid = 1;
+  string deviceId = 2;
+  string mac = 3;
+  repeated common_message.ProcessInformation processInformation = 4;
+}
+
+message ProcessInformation {
+  string userName = 1;
+  string pid = 2;
+  string processName = 3;
+  string cpuRatio = 4;
+  string memoryRatio = 5;
+  string memoryUseCapability = 6;
+}
+
+message Tuple {
+  int32 packageLossRate = 1;
+  int32 delay = 2;
+  string sourceIp = 3;
+  string sourcePort = 4;
+  string desIp = 5;
+  string desPort = 6;
+  string gateway = 7;
+  int32 bandwidth = 8;
+  int32 dataFlow = 9;
+  int32 datan = 10;
+}
+
+message RemoteProtocolInfoResp {
+  int32 result = 1;
+  string ipAddr = 2;
+  int32 port = 3;
+  string password = 4;
+  string token = 5;
+  string username = 6;
+  string protocol = 7;
+  string requestUuid = 8;
+  string msg = 9;
+}
+
+message RemoteProtocolInfoReq {
+  string protocol = 1;
+  string requestUuid = 2;
+  bool isGateway = 3;
+  string gateway = 4;
+  string publicPort = 5;
+  string privatePort = 6;
+  string privateGateway = 7;
+}
+
+message WebRemoteProtocolInfoReq {
+  string id = 1;
+  int64 desktoppoolId = 2;
+  string protocol = 3;
+  bool isInDesktoppool = 4;
+}
+
+message TerminalTypeReq {
+  int32 computerType = 1;
+  string deviceId = 2;
+}
+
+message TerminalTypeResp {
+  int32 computerType = 1;
+  string name = 2;
+  repeated string dataDiskSize = 3;
+  common.ErrorData error = 4;
+  int32 isDataDiskModified = 5;
+}
+
+message AuthStrategyReq {
+  message TerminalMacIpEntry {
+    string key = 1;
+    string value = 2;
+  }
+  message DomainMacIpEntry {
+    string key = 1;
+    string value = 2;
+  }
+  repeated common_message.AuthStrategyReq.TerminalMacIpEntry terminalMacIp = 1;
+  repeated common_message.AuthStrategyReq.DomainMacIpEntry domainMacIp = 2;
+  string loginName = 3;
+  int64 desktoppoolId = 4;
+  int32 computerType = 5;
+  int64 userId = 6;
+}
+
+message AuthStrategyResp {
+  common_message.UsbInfoResp usbInfo = 1;
+  common.WatermarkPolicy watermarkpolicy = 2;
+  repeated common_message.NetStrategyInfo net = 3;
+  repeated common_message.SoftwareInfo software = 4;
+  common.ErrorData error = 5;
+  common_message.ProfileManagementMsg profileManagementMsg = 6;
+}
+
+message ProfileManagementStorage {
+  int32 type = 1;
+  string machineProfilePath = 2;
+  string username = 3;
+  string password = 4;
+}
+
+message ProfileManagementAdvanced {
+  int32 addAdminGroupToRup = 1;
+  int32 chromeRoamingConfig = 2;
+  int32 logonTempProfile = 3;
+  int32 delUnuseProfile = 4;
+  int32 delUnuseProfileTime = 6;
+  int32 mDCheck = 7;
+}
+
+message ProfileManagementUser {
+  string profileQuotaMessage = 1;
+  int32 maxProfileSize = 2;
+  int32 warnUserTimeout = 3;
+  string roamingExcludeFile = 4;
+  string roamingExcludeDir = 5;
+  string roamingSyncFile = 6;
+  string roamingSyncDir = 7;
+  int32 enableWarnUserRupSize = 8;
+  int32 maxSinglefileSize = 9;
+}
+
+message ProfileManagementFolderRedirect {
+  int32 enable = 1;
+  int32 appdataRoaming = 2;
+  int32 desktop = 3;
+  int32 startMenu = 4;
+  int32 documents = 5;
+  int32 pictures = 6;
+  int32 music = 7;
+  int32 videos = 8;
+  int32 favorites = 9;
+  int32 contacts = 10;
+  int32 downloads = 11;
+  int32 links = 12;
+  int32 searches = 13;
+  int32 savedGames = 14;
+}
+
+message ProfileManagementMsg {
+  int32 enable = 1;
+  common_message.ProfileManagementStorage storage = 2;
+  common_message.ProfileManagementAdvanced advanced = 3;
+  string username = 4;
+  string password = 5;
+  common_message.ProfileManagementUser user = 6;
+  common_message.ProfileManagementFolderRedirect folderRedirect = 7;
+  repeated string thirdPart = 8;
+  common.ErrorData error = 9;
+}
+
+message UsbInfoResp {
+  repeated common_message.UsbWriteOrBlackListInfo usbWriteOrBlackList = 1;
+  int32 idvRedirectStorage = 2;
+  int32 idvRedirectCamera = 3;
+  int32 idvRedirectScanner = 4;
+  int32 idvRedirectPrinter = 5;
+  int32 idvRedirectSmartCard = 6;
+  common.ErrorData error = 7;
+  int32 idvRedirectOther = 8;
+  int32 idvRedirectCommunications = 9;
+  int32 idvRedirectBridgeClass = 10;
+  int32 idvRedirectWirelessController = 11;
+  int32 idvRedirectVendorSpecific = 12;
+}
+
+message UsbWriteOrBlackListInfo {
+  string deviceName = 1;
+  string vid = 2;
+  string pid = 3;
+  string deviceClass = 4;
+  string subClass = 5;
+  string protocol = 6;
+  int32 enable = 7;
+  int32 redirection = 8;
+}
+
+message NetStrategyInfo {
+  int32 direction = 1;
+  int32 strategyType = 2;
+  string protocolType = 3;
+  int32 startPort = 4;
+  int32 endPort = 5;
+  string ipAddr = 6;
+  string netmask = 7;
+  string lastModifyTime = 8;
+  string exceptionIp = 9;
+  string portArea = 10;
+  string ipArea = 11;
+}
+
+message SoftwareInfo {
+  string processName = 1;
+  string description = 2;
+  int32 matchRule = 3;
+  int32 enable = 4;
+}
+
+message VmVgpuResp {
+  bool isVgpuAvailable = 1;
+  string requestUuid = 2;
+}
+
+message VmVgpuReq {
+  string requestUuid = 1;
+}
+
+message NetStrategyReq {
+  message MacIpEntry {
+    string key = 1;
+    string value = 2;
+  }
+  repeated common_message.NetStrategyReq.MacIpEntry macIp = 1;
+  int32 computerType = 2;
+}
+
+message NetStrategyResp {
+  repeated common_message.NetStrategyInfo net = 1;
+  bool isAvaliable = 2;
+  common.ErrorData error = 3;
+}
+
+message JoinComputerGroupResp {
+  repeated string grouplist = 1;
+  common.ErrorData error = 2;
+}
+
+message ExtraAuthStrategyReq {
+  message TerminalMacIpEntry {
+    string key = 1;
+    string value = 2;
+  }
+  message DomainMacIpEntry {
+    string key = 1;
+    string value = 2;
+  }
+  repeated common_message.ExtraAuthStrategyReq.TerminalMacIpEntry terminalMacIp = 1;
+  repeated common_message.ExtraAuthStrategyReq.DomainMacIpEntry domainMacIp = 2;
+  string loginName = 3;
+  int64 desktoppoolId = 4;
+  int32 computerType = 5;
+  int64 userId = 6;
+}
+
+message ExtraAuthStrategyResp {
+  common.ErrorData error = 1;
+  int32 enableProxy = 2;
+  string proxyIp = 3;
+  string proxyPort = 4;
+}
+
+message WebPageRedirStrategyReq {
+  message TerminalMacIpEntry {
+    string key = 1;
+    string value = 2;
+  }
+  message DomainMacIpEntry {
+    string key = 1;
+    string value = 2;
+  }
+  repeated common_message.WebPageRedirStrategyReq.TerminalMacIpEntry terminalMacIp = 1;
+  repeated common_message.WebPageRedirStrategyReq.DomainMacIpEntry domainMacIp = 2;
+  string loginName = 3;
+  int64 desktoppoolId = 4;
+  int32 computerType = 5;
+  int64 userId = 6;
+}
+
+message WebPageRedirStrategyResp {
+  common.ErrorData error = 1;
+  int32 enableProxy = 2;
+  string proxyIp = 3;
+  string proxyPort = 4;
+}
+
+message EsConfigResp {
+  int32 isEnable = 1;
+  string masterIp = 2;
+  common.ErrorData error = 3;
+  string gatewayIp = 4;
+  int32 gatewayPort = 5;
+  int32 frequency = 6;
+}
+
+message PassThroughMessage {
+  string vmUuid = 1;
+  string content = 2;
+  int32 info_type = 3;
+}
+
+message CommonStreamResp {
+  int32 result = 1;
+  common.ErrorData error = 2;
+}
+
+message PipelineLimitPolicy {
+  bool isPipelineLimitOpen = 1;
+  int32 pipelineLimitType = 2;
+  int32 totalLimit = 3;
+  repeated common_message.PipelineLimitInfo infoList = 4;
+  common.ErrorData error = 5;
+}
+
+message PipelineLimitInfo {
+  string pipelineName = 1;
+  bool isLimitByNumber = 2;
+  int32 numberLimit = 3;
+  bool isLimitByPercent = 4;
+  int32 percentLimit = 5;
+}
+
+message AgentProtocolWorkingMode {
+  int32 mode = 1;
+  bool bReportLoadInfo = 2;
+}
+
+message DataDiskResp {
+  string diskName = 1;
+  string diskLable = 2;
+  int32 diskSize = 3;
+  int32 diskExpand = 4;
+  int32 dbId = 5;
+  common.ErrorData error = 6;
+  string vmUuid = 7;
+}

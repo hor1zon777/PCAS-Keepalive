@@ -1,0 +1,8 @@
+syntax = "proto3";
+package common;
+
+import "common/stream_message.proto";
+
+service CommonStream {
+  rpc CommonStream (stream common.StreamMessage) returns (stream common.StreamMessage);
+}
