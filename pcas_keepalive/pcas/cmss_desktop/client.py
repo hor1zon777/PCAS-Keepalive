@@ -109,8 +109,9 @@ class CmssDesktopClient:
             raise ValueError("customLoginParams.cagList 为空")
 
         if cag_index < 0:
-            ipv6_gateways = [c for c in cag_list if ":" in c.get("addr", "")]
-            chosen = ipv6_gateways[0] if ipv6_gateways else cag_list[0]
+            # 优先 IPv4（兼容性好），fallback IPv6
+            ipv4_gateways = [c for c in cag_list if ":" not in c.get("addr", "")]
+            chosen = ipv4_gateways[0] if ipv4_gateways else cag_list[0]
         else:
             chosen = cag_list[min(cag_index, len(cag_list) - 1)]
 
@@ -246,51 +247,88 @@ class CmssDesktopClient:
     ) -> CmssDesktopResult:
         """一步到位：从 cem-webapi 机器字典 → ZTEC → TLS → cs_suOperDesktop。
 
+        自动遍历 cagList 里的所有网关（优先 IPv4），直到有一个连通。
+
         Args:
             machine: getDeviceInfo 返回的 machineList[i]
-            cag_index: cagList 里选哪个网关（-1=自动）
+            cag_index: 指定网关索引（-1=自动遍历全部，优先 IPv4）
             keep_alive_seconds: 连接成功后维持 TCP 的秒数（0=不维持）
-
-        Returns:
-            CmssDesktopResult
         """
         start = time.time()
         result = CmssDesktopResult()
 
         try:
-            cag_param, cag_addr, cag_port = cls.resolve_cag_params(machine, cag_index)
-            result.cag_addr = cag_addr
-            result.cag_port = cag_port
+            # 解析 customLoginParams
+            clp_raw = machine.get("customLoginParams")
+            if isinstance(clp_raw, str):
+                clp = json.loads(clp_raw)
+            elif isinstance(clp_raw, dict):
+                clp = clp_raw
+            else:
+                raise ValueError(f"customLoginParams 格式异常: {type(clp_raw)}")
 
-            clp = machine.get("customLoginParams")
-            if isinstance(clp, str):
-                clp = json.loads(clp)
-            csap_host = (clp or {}).get("csapip", "")
+            cag_list = clp.get("cagList", [])
+            if not cag_list:
+                raise ValueError("cagList 为空")
+            csap_host = clp.get("csapip", "")
 
-            client = cls(cag_addr, cag_port)
-            try:
-                client_key, server_key = await client.ztec_handshake(cag_param)
-                result.ztec_hello_ok = True
-                result.ztec_pong_ok = True
-                result.ztec_auth_ok = True
-                result.server_key = server_key
+            # 排序：IPv4 优先
+            if cag_index >= 0:
+                ordered = [cag_list[min(cag_index, len(cag_list) - 1)]]
+            else:
+                ipv4 = [c for c in cag_list if ":" not in c.get("addr", "")]
+                ipv6 = [c for c in cag_list if ":" in c.get("addr", "")]
+                ordered = ipv4 + ipv6
 
-                await client.tls_upgrade()
-                result.tls_ok = True
+            last_error = ""
+            for gw in ordered:
+                cag_addr = gw["addr"]
+                cag_port = gw.get("port", 8899)
+                result.cag_addr = cag_addr
+                result.cag_port = cag_port
 
-                vm_id = machine.get("machineId", "")
-                resp = await client.request_su_oper_desktop(vm_id, csap_host)
-                result.cs_action_ok = resp.success
-                result.connect_str = resp.connect_str
-                if not resp.success:
-                    result.error = f"cs_action: result={resp.result} mesg={resp.mesg}"
+                try:
+                    cag_param, _, _ = cls.resolve_cag_params(machine, cag_list.index(gw))
 
-                if keep_alive_seconds > 0 and resp.success:
-                    log.info("[desktop] keepalive %ds...", keep_alive_seconds)
-                    await asyncio.sleep(keep_alive_seconds)
+                    client = cls(cag_addr, cag_port)
+                    try:
+                        client_key, server_key = await client.ztec_handshake(cag_param)
+                        result.ztec_hello_ok = True
+                        result.ztec_pong_ok = True
+                        result.ztec_auth_ok = True
+                        result.server_key = server_key
 
-            finally:
-                await client.close()
+                        await client.tls_upgrade()
+                        result.tls_ok = True
+
+                        vm_id = machine.get("machineId", "")
+                        resp = await client.request_su_oper_desktop(vm_id, csap_host)
+                        result.cs_action_ok = resp.success
+                        result.connect_str = resp.connect_str
+                        if not resp.success:
+                            result.error = f"cs_action: result={resp.result} mesg={resp.mesg}"
+
+                        if keep_alive_seconds > 0 and resp.success:
+                            log.info("[desktop] keepalive %ds on %s:%d...",
+                                     keep_alive_seconds, cag_addr, cag_port)
+                            await asyncio.sleep(keep_alive_seconds)
+
+                        # 成功，跳出网关循环
+                        break
+                    finally:
+                        await client.close()
+
+                except OSError as e:
+                    last_error = f"{cag_addr}:{cag_port} -> {e}"
+                    log.info("[ztec] %s 连接失败，尝试下一个网关: %s", cag_addr, e)
+                    continue
+                except Exception as e:
+                    last_error = f"{cag_addr}:{cag_port} -> {e}"
+                    log.warning("[ztec] %s 握手失败: %s", cag_addr, e)
+                    continue
+            else:
+                # 所有网关都失败
+                result.error = f"所有 {len(ordered)} 个 CAG 网关均不可达: {last_error}"
 
         except Exception as e:
             result.error = f"{type(e).__name__}: {e}"
